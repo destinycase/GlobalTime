@@ -117,9 +117,9 @@ body {
 .form-input,
 .form-select,
 .time-input {
-    background: var(--input-bg);
-    border: 1px solid var(--border);
-    color: var(--text);
+    background: rgba(15, 23, 42, 0.95);
+    border: 1px solid rgba(148, 163, 184, 0.35);
+    color: #e5e7eb;
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 9px;
@@ -134,6 +134,7 @@ body {
 }
 
 .form-input:focus,
+.form-select:focus,
 .time-input:focus {
     border-color: var(--accent);
     background: rgba(56, 189, 248, 0.05);
@@ -174,7 +175,7 @@ body {
 }
 
 .control-label {
-    font-size: 9px;
+    font-size: 11px;
     color: var(--accent);
     font-weight: 700;
     text-transform: uppercase;
@@ -270,7 +271,7 @@ body {
 
 .zone-code {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 9px;
+    font-size: 11px;
     color: var(--accent);
     background: rgba(56, 189, 248, 0.1);
     padding: 2px 4px;
@@ -463,4 +464,33 @@ body {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+.contrast-select {
+    color: #e5e7eb;
+    background: rgba(15, 23, 42, 0.98);
+}
+
+.cell-dash {
+    color: var(--text-dim);
+    font-weight: 600;
+}
+
+.offset-stepper-group {
+    gap: 6px;
+}
+
+.calc-date-input {
+    color-scheme: dark;
+    min-height: 30px;
+}
+
+.calc-date-input::-webkit-calendar-picker-indicator {
+    filter: invert(0.9) brightness(1.2);
+    opacity: 1;
+}
+
+#clocks-container .sm-btn {
+    white-space: nowrap;
+    min-width: 44px;
 }

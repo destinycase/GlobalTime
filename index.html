@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>세계 시간 v1.4.0</title>
-    <link rel="stylesheet" href="style.css?v=130">
+    <title>세계 시간 v1.5.0</title>
+    <link rel="stylesheet" href="style.css?v=150">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -21,7 +21,7 @@
                 <span class="logo-icon">🌐</span>
                 <div class="logo-text">
                     <h1>세계 시간</h1>
-                    <span class="version-badge">ver 1.3.0</span>
+                    <span class="version-badge" id="version-badge">ver 1.5.0</span>
                 </div>
             </div>
 
@@ -50,13 +50,13 @@
 
         <!-- Main Dashboard -->
         <main class="main-content">
-            <!-- Group Tabs Bar (Live/Fixed Only) -->
+            <!-- Group Tabs Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
             <div id="group-tabs-container" class="group-tabs">
                 <!-- Tabs rendered by JS -->
                 <button class="sm-btn" id="add-group-btn" title="새 그룹 추가">＋</button>
             </div>
 
-            <!-- Global Control Bar (Live/Fixed Only) -->
+            <!-- Global Control Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
             <div id="top-control-bar" class="control-bar">
                 <div class="control-group">
                     <span class="control-label">타임존 추가</span>
@@ -67,7 +67,7 @@
                             style="position: absolute; top:100%; left:0; right:0; display:none; background: #1e293b; z-index: 100;">
                         </div>
                     </div>
-                    <select id="tz-quick-select" class="form-select" style="width: 130px;">
+                    <select id="tz-quick-select" class="form-select contrast-select" style="width: 130px;">
                         <option value="">인기 도시 선택...</option>
                     </select>
                     <button id="show-all-tz" class="icon-btn">📑 목록</button>
@@ -83,12 +83,9 @@
                 </div>
 
                 <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
-                    <span class="control-label">시간 표시 수</span>
-                    <select id="slot-count-select" class="form-select" style="width: 50px;">
-                        <option value="1">1</option>
-                        <option value="2">2</option>
-                        <option value="3">3</option>
-                    </select>
+                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 9px;">
+                        <input type="checkbox" id="toggle-extra-time"> 추가 시간 표시
+                    </label>
                 </div>
 
                 <div class="control-group" style="margin-left: auto;">
@@ -108,10 +105,11 @@
                             <th style="width: 30px;"></th>
                             <th style="width: 180px;">지역 / 국가</th>
                             <th style="width: 110px;">UTC Offset</th>
-                            <!-- Time/Day columns dynamic -->
-                            <th class="dynamic-col">시간</th>
+                            <!-- Day/Time columns dynamic -->
                             <th class="dynamic-col" style="width: 60px;">요일</th>
-                            <th style="width: 80px;">액션</th>
+                            <th class="dynamic-col">시간</th>
+                            <th style="width: 70px;">액션</th>
+                            <th style="width: 54px;">삭제</th>
                         </tr>
                     </thead>
                     <tbody id="clocks-container">
@@ -126,10 +124,11 @@
                             </td>
                             <td><span class="offset-text">UTC+0</span></td>
                             <!-- Dynamic Content -->
+                            <td class="dynamic-cell"><span class="day-badge" id="utc-day-0">-</span></td>
                             <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-0"
                                     spellcheck="false" data-slot="0"></td>
-                            <td class="dynamic-cell"><span class="day-badge" id="utc-day-0">-</span></td>
                             <td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td>
+                            <td><span class="cell-dash">-</span></td>
                         </tr>
                         <!-- Dynamic Rows -->
                     </tbody>
@@ -142,9 +141,9 @@
                         <h2>📅 기간(D-Day) 계산</h2>
                         <div class="calc-form">
                             <div class="form-group"><label>시작일</label><input type="date" id="period-start"
-                                    class="form-input"></div>
+                                    class="form-input calc-date-input"></div>
                             <div class="form-group"><label>종료일</label><input type="date" id="period-end"
-                                    class="form-input"></div>
+                                    class="form-input calc-date-input"></div>
                             <div class="calc-result-box">
                                 <div>
                                     <div style="font-size: 9px; color: var(--text-dim);">총 일수</div><span
@@ -158,10 +157,12 @@
                         <h2>🚀 날짜 이동 계산</h2>
                         <div class="calc-form">
                             <div class="form-group"><label>기준일</label><input type="date" id="offset-start"
-                                    class="form-input"></div>
-                            <div class="form-group"><input type="number" id="off-val" class="form-input"
-                                    style="width: 60px;" value="0">
-                                <select id="off-unit" class="form-select">
+                                    class="form-input calc-date-input"></div>
+                            <div class="form-group offset-stepper-group">
+                                <button type="button" id="off-minus" class="sm-btn" aria-label="일수 감소">－</button>
+                                <input type="number" id="off-val" class="form-input" style="width: 60px;" value="0">
+                                <button type="button" id="off-plus" class="sm-btn" aria-label="일수 증가">＋</button>
+                                <select id="off-unit" class="form-select contrast-select">
                                     <option value="day">일</option>
                                     <option value="week">주</option>
                                     <option value="month">월</option>
@@ -191,7 +192,7 @@
         </div>
     </div>
 
-    <script src="main.js?v=130"></script>
+    <script src="main.js?v=150"></script>
 </body>
 
 </html>

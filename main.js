@@ -1,8 +1,8 @@
 let isRealtime = true;
-let globalTimes = [new Date(), new Date(), new Date()]; // Multi-slot dates
+let globalTimes = [new Date(), new Date()]; // base + optional extra slot
 let slotCount = 1;
 let uiScale = 1.0;
-const VERSION = "1.4.0";
+const VERSION = "1.5.0";
 
 // --- 타임존 마스터 데이터 ---
 const TZ_DATABASE = [
@@ -37,6 +37,9 @@ let groups = [];
 let activeGroupId = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.title = `세계 시간 v${VERSION}`;
+    const versionBadge = document.getElementById('version-badge');
+    if (versionBadge) versionBadge.textContent = `ver ${VERSION}`;
     loadPersistence();
     initUI();
     initDragAndDrop();
@@ -73,11 +76,11 @@ function initUI() {
     document.getElementById('scale-down').onclick = () => setScale(uiScale - 0.1);
     if (localStorage.getItem('GTV_Scale')) setScale(parseFloat(localStorage.getItem('GTV_Scale')));
 
-    // Slot Count
-    const slotSelect = document.getElementById('slot-count-select');
-    slotSelect.value = slotCount;
-    slotSelect.onchange = (e) => {
-        slotCount = parseInt(e.target.value);
+    // Extra Time Toggle (fixed mode only)
+    const extraTimeToggle = document.getElementById('toggle-extra-time');
+    extraTimeToggle.checked = slotCount > 1;
+    extraTimeToggle.onchange = (e) => {
+        slotCount = e.target.checked ? 2 : 1;
         renderList();
         updateClocks();
         savePersistence();
@@ -117,12 +120,14 @@ function switchMainTab(tab) {
     document.getElementById('top-control-bar').style.display = isCalc ? 'none' : 'flex';
 
     isRealtime = (tab === 'live');
+    const extraTimeToggle = document.getElementById('toggle-extra-time');
     if (isRealtime) {
-        slotCount = 1; // Force 1 slot for live
-        document.getElementById('slot-count-select').value = 1;
-        document.getElementById('slot-count-select').disabled = true;
+        slotCount = 1;
+        extraTimeToggle.checked = false;
+        extraTimeToggle.disabled = true;
     } else {
-        document.getElementById('slot-count-select').disabled = false;
+        extraTimeToggle.disabled = false;
+        slotCount = extraTimeToggle.checked ? 2 : 1;
     }
 
     document.getElementById('status-text').textContent = isRealtime ? "동기화 중" : "시간 고정 모드";
@@ -139,7 +144,9 @@ function renderGroups() {
     groups.forEach((group, idx) => {
         const btn = document.createElement('button');
         btn.className = `group-tab ${idx === activeGroupId ? 'active' : ''}`;
-        btn.innerHTML = `<span>${group.name}</span>`;
+        const label = document.createElement('span');
+        label.textContent = group.name;
+        btn.appendChild(label);
         btn.onclick = () => { activeGroupId = idx; renderGroups(); renderList(); updateClocks(); };
         btn.ondblclick = () => { const n = prompt("이름 수정:", group.name); if (n) { group.name = n; savePersistence(); renderGroups(); } };
         btn.oncontextmenu = (e) => { e.preventDefault(); if (groups.length > 1 && confirm('삭제하시겠습니까?')) { groups.splice(idx, 1); activeGroupId = 0; savePersistence(); renderGroups(); renderList(); } };
@@ -160,9 +167,9 @@ function renderList() {
         <th style="width: 110px;">UTC Offset</th>
     `;
     for (let i = 0; i < slotCount; i++) {
-        theadRow.innerHTML += `<th class="dynamic-col">시간 ${slotCount > 1 ? i + 1 : ''}</th><th class="dynamic-col" style="width: 55px;">요일</th>`;
+        theadRow.innerHTML += `<th class="dynamic-col" style="width: 55px;">요일</th><th class="dynamic-col">${i === 0 ? '시간' : '추가 시간'}</th>`;
     }
-    theadRow.innerHTML += `<th style="width: 80px;">액션</th>`;
+    theadRow.innerHTML += `<th style="width: 70px;">액션</th><th style="width: 54px;">삭제</th>`;
 
     // 2. Render Body
     const container = document.getElementById('clocks-container');
@@ -179,11 +186,11 @@ function renderList() {
     `;
     for (let i = 0; i < slotCount; i++) {
         utcInner += `
-            <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-${i}" spellcheck="false" data-slot="${i}"></td>
             <td class="dynamic-cell"><span class="day-badge" id="utc-day-${i}">-</span></td>
+            <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-${i}" spellcheck="false" data-slot="${i}"></td>
         `;
     }
-    utcInner += `<td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td>`;
+    utcInner += `<td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td><td><span class="cell-dash">-</span></td>`;
     utcTr.innerHTML = utcInner;
     container.appendChild(utcTr);
 
@@ -209,13 +216,13 @@ function renderList() {
         `;
         for (let i = 0; i < slotCount; i++) {
             inner += `
-                <td class="dynamic-cell"><input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? 'readonly' : ''} data-slot="${i}"></td>
                 <td class="dynamic-cell"><span class="day-badge day-slot-${i}"></span></td>
+                <td class="dynamic-cell"><input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? 'readonly' : ''} data-slot="${i}"></td>
             `;
         }
         inner += `
-            <td><div class="btn-group"><button class="sm-btn" onclick="copyRow('${tz.id}')">복사</button>
-                <button class="sm-btn danger" onclick="removeTimezone('${tz.id}')">✕</button></div></td>
+            <td><button class="sm-btn" onclick="copyRow('${tz.id}')">복사</button></td>
+            <td><button class="sm-btn danger" onclick="removeTimezone('${tz.id}')">✕</button></td>
         `;
         tr.innerHTML = inner;
 
@@ -267,6 +274,10 @@ function getTimezoneOffset(zone, date) {
     if (!m) return 0;
     const sign = offStr.includes('+') ? 1 : -1;
     return sign * (parseInt(m[1]) * 60 + parseInt(m[2] || 0));
+}
+
+function pad(v) {
+    return String(v).padStart(2, '0');
 }
 
 // --- Clock Logic ---
@@ -363,21 +374,38 @@ function initSearchAndSelect() {
     const input = document.getElementById('tz-search-input');
     const results = document.getElementById('search-results');
     const quickSelect = document.getElementById('tz-quick-select');
+    const fullList = document.getElementById('full-tz-list');
+    const overlay = document.getElementById('full-tz-overlay');
+
+    const buildItem = (entry, hideOverlay = false) => {
+        const item = document.createElement('div');
+        item.className = 'tz-item';
+        item.textContent = `${entry.name} - ${entry.city}`;
+        item.onclick = () => {
+            addFromSearch(entry.zone, `${entry.name} - ${entry.city}`);
+            if (hideOverlay) overlay.style.display = 'none';
+        };
+        return item;
+    };
+
     TZ_DATABASE.forEach(t => { const o = document.createElement('option'); o.value = t.zone; o.textContent = `${t.name} - ${t.city}`; quickSelect.appendChild(o); });
     quickSelect.onchange = (e) => { const d = TZ_DATABASE.find(t => t.zone === e.target.value); if (d) addTimezone({ id: "tz-" + Date.now(), zone: d.zone, name: `${d.name} - ${d.city}`, type: 'standard' }); quickSelect.value = ""; };
+
     input.oninput = () => {
         const v = input.value.trim().toLowerCase();
         if (!v) { results.style.display = 'none'; return; }
-        const m = TZ_DATABASE.filter(t => t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v));
-        results.innerHTML = m.map(t => `<div class="tz-item" onclick="addFromSearch('${t.zone}', '${t.name} - ${t.city}')">${t.name} - ${t.city}</div>`).join('');
-        results.style.display = m.length ? 'block' : 'none';
+        const matched = TZ_DATABASE.filter(t => t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v));
+        results.innerHTML = '';
+        matched.forEach(t => results.appendChild(buildItem(t)));
+        results.style.display = matched.length ? 'block' : 'none';
     };
+
     document.getElementById('show-all-tz').onclick = () => {
-        const o = document.getElementById('full-tz-overlay');
-        document.getElementById('full-tz-list').innerHTML = TZ_DATABASE.map(t => `<div class="tz-item" onclick="addFromSearch('${t.zone}', '${t.name} - ${t.city}'); document.getElementById('full-tz-overlay').style.display='none'">${t.name} - ${t.city}</div>`).join('');
-        o.style.display = 'flex';
+        fullList.innerHTML = '';
+        TZ_DATABASE.forEach(t => fullList.appendChild(buildItem(t, true)));
+        overlay.style.display = 'flex';
     };
-    document.getElementById('close-overlay').onclick = () => document.getElementById('full-tz-overlay').style.display = 'none';
+    document.getElementById('close-overlay').onclick = () => overlay.style.display = 'none';
 }
 
 function addFromSearch(zone, label) { addTimezone({ id: "tz-" + Date.now(), zone, name: label, type: 'standard' }); document.getElementById('tz-search-input').value = ''; document.getElementById('search-results').style.display = 'none'; }
@@ -390,41 +418,78 @@ function initDragAndDrop() {
 function getAfter(c, y) { const drs = [...c.querySelectorAll('.time-row:not(.dragging):not(.static)')]; return drs.reduce((clo, ch) => { const b = ch.getBoundingClientRect(); const o = y - b.top - b.height / 2; if (o < 0 && o > clo.off) return { off: o, el: ch }; return clo; }, { off: Number.NEGATIVE_INFINITY }).el; }
 function saveOrder() { const ids = [...document.querySelectorAll('.time-row:not(.static)')].map(r => r.id.replace('tz-row-', '')); groups[activeGroupId].zones.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); savePersistence(); }
 
+function toCompactDateTime(iso) {
+    const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
+    if (!m) return (iso || '').trim();
+    return `${m[1]}${m[2]}${m[3]} ${m[4]}`;
+}
+
+function getRowCopyText(row) {
+    const zoneCode = (row.querySelector('.zone-code')?.textContent || '[UTC]').trim();
+    const times = [...row.querySelectorAll('.time-input')].map(i => toCompactDateTime(i.value)).filter(Boolean);
+    if (!times.length) return `${zoneCode}`;
+    return `${zoneCode} ${times.join(' - ')}`;
+}
+
+async function writeClipboardWithNotice(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        alert("복사 완료");
+    } catch {
+        alert("복사 실패: 브라우저 권한 또는 보안 컨텍스트(HTTPS)를 확인하세요.");
+    }
+}
+
 async function copyRow(id) {
     const row = document.getElementById(`tz-row-${id}`);
-    const name = row.querySelector('.zone-name').textContent;
-    const off = row.querySelector('.offset-text').textContent;
-    const times = [...row.querySelectorAll('.time-input')].map(i => i.value);
-    await navigator.clipboard.writeText(`${name.replace(/\s+/g, '_')}_${off} | ${times.join(' - ')}`);
+    if (!row) return;
+    await writeClipboardWithNotice(getRowCopyText(row));
 }
 
 async function copyAllTimezones() {
-    let t = `[Group: ${groups[activeGroupId].name}]\n`;
-    const rows = [...document.querySelectorAll('.time-row')];
-    rows.forEach(r => {
-        const name = r.querySelector('.zone-name').textContent;
-        const off = r.querySelector('.offset-text').textContent;
-        const times = [...r.querySelectorAll('.time-input')].map(i => i.value);
-        t += `${name.replace(/\s+/g, '_')}_${off} | ${times.join(' - ')}\n`;
-    });
-    await navigator.clipboard.writeText(t);
-    alert("복사 완료");
+    const lines = [...document.querySelectorAll('.time-row')].map(getRowCopyText);
+    await writeClipboardWithNotice(lines.join('\n'));
 }
 
+async function copyText(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const text = (el.textContent || '').trim();
+    if (!text) return;
+    await writeClipboardWithNotice(text);
+}
 function initCalculators() {
     const pS = document.getElementById('period-start'); const pE = document.getElementById('period-end');
     const oS = document.getElementById('offset-start'); const oV = document.getElementById('off-val'); const oU = document.getElementById('off-unit');
+    const offMinus = document.getElementById('off-minus'); const offPlus = document.getElementById('off-plus');
     pS.valueAsDate = pE.valueAsDate = oS.valueAsDate = new Date();
     const c = () => {
         if (pS.valueAsDate && pE.valueAsDate) document.getElementById('period-res').textContent = Math.round((pE.valueAsDate - pS.valueAsDate) / 86400000) + " 일";
         if (oS.valueAsDate) { const r = new Date(oS.valueAsDate); const v = parseInt(oV.value) || 0; if (oU.value === 'day') r.setDate(r.getDate() + v); if (oU.value === 'week') r.setDate(r.getDate() + v * 7); if (oU.value === 'month') r.setMonth(r.getMonth() + v); document.getElementById('offset-res').textContent = r.toISOString().split('T')[0]; }
     };
+    offMinus.onclick = () => { oV.value = (parseInt(oV.value) || 0) - 1; c(); };
+    offPlus.onclick = () => { oV.value = (parseInt(oV.value) || 0) + 1; c(); };
     [pS, pE, oS, oV, oU].forEach(el => el.onchange = c); c();
 }
 
-function savePersistence() { localStorage.setItem('GTV_v140_Data', JSON.stringify({ groups, activeGroupId, slotCount })); }
+function savePersistence() { localStorage.setItem('GTV_v150_Data', JSON.stringify({ groups, activeGroupId, slotCount })); }
 function loadPersistence() {
-    const s = localStorage.getItem('GTV_v140_Data');
-    if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId; slotCount = d.slotCount || 1; }
-    else groups = [{ name: "기본 그룹", zones: [{ id: 'seoul', name: '대한민국 - 서울', zone: 'Asia/Seoul', type: 'standard' }] }];
+    const saved = localStorage.getItem('GTV_v150_Data') || localStorage.getItem('GTV_v140_Data');
+    const fallback = [{ name: "기본 그룹", zones: [{ id: 'seoul', name: '대한민국 - 서울', zone: 'Asia/Seoul', type: 'standard' }] }];
+    if (!saved) {
+        groups = fallback;
+        return;
+    }
+
+    try {
+        const data = JSON.parse(saved);
+        groups = Array.isArray(data.groups) && data.groups.length ? data.groups : fallback;
+        activeGroupId = Number.isInteger(data.activeGroupId) ? Math.min(Math.max(data.activeGroupId, 0), groups.length - 1) : 0;
+        slotCount = Math.min(2, Math.max(1, data.slotCount || 1));
+    } catch {
+        groups = fallback;
+        activeGroupId = 0;
+        slotCount = 1;
+        localStorage.removeItem('GTV_v150_Data');
+    }
 }
