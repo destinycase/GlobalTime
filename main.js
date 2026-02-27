@@ -2,8 +2,8 @@ let isRealtime = true;
 let globalTimes = [new Date(), new Date()];
 let slotCount = 1;
 let uiScale = 1.0;
-const VERSION = "2.0.0";
-const STORAGE_KEY = "GTV_v200_Data";
+const VERSION = "3.0.0";
+const STORAGE_KEY = "GTV_v300_Data";
 
 // --- 타임존 마стер 데이터 (Extensive Mapping for Abbr) ---
 const TZ_DATABASE = [
@@ -664,7 +664,7 @@ async function copyText(elementId, isInput = false) {
 
 function savePersistence() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, activeGroupId, slotCount })); }
 function loadPersistence() {
-    const s = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("GTV_v170_Data") || localStorage.getItem("GTV_v160_Data") || localStorage.getItem("GTV_v150_Data") || localStorage.getItem("GTV_v140_Data");
+    const s = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("GTV_v200_Data") || localStorage.getItem("GTV_v170_Data") || localStorage.getItem("GTV_v160_Data") || localStorage.getItem("GTV_v150_Data") || localStorage.getItem("GTV_v140_Data");
     if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId || 0; slotCount = Math.min(2, Math.max(1, d.slotCount || 1)); }
     else groups = [{ name: t("default_group_name"), zones: [{ id: "seoul", name_ko: "대한민국 - 서울", name_en: "South Korea - Seoul", zone: "Asia/Seoul", type: "standard" }] }];
 }
