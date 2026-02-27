@@ -7,41 +7,46 @@ const STORAGE_KEY = "GTV_v200_Data";
 
 // --- 타임존 마стер 데이터 (Extensive Mapping for Abbr) ---
 const TZ_DATABASE = [
-    { zone: "Asia/Seoul", name: "대한민국", city: "서울" },
-    { zone: "Asia/Tokyo", name: "일본", city: "도쿄" },
-    { zone: "Asia/Shanghai", name: "중국", city: "상하이" },
-    { zone: "Asia/Hong_Kong", name: "홍콩", city: "홍콩" },
-    { zone: "Asia/Singapore", name: "싱가포르", city: "싱가포르" },
-    { zone: "Asia/Taipei", name: "대만", city: "타이베이" },
-    { zone: "Asia/Bangkok", name: "태국", city: "방콕" },
-    { zone: "Asia/Ho_Chi_Minh", name: "베트남", city: "호치민" },
-    { zone: "Asia/Jakarta", name: "인도네시아", city: "자카르타" },
-    { zone: "Asia/Dubai", name: "UAE", city: "두바이" },
-    { zone: "Asia/Kolkata", name: "인도", city: "뉴델리" },
-    { zone: "Europe/London", name: "영국", city: "런던" },
-    { zone: "Europe/Paris", name: "프랑스", city: "파리" },
-    { zone: "Europe/Berlin", name: "독일", city: "베를린" },
-    { zone: "Europe/Moscow", name: "러시아", city: "모스크바" },
-    { zone: "Europe/Istanbul", name: "터키", city: "이스탄불" },
-    { zone: "America/New_York", name: "미국", city: "뉴욕" },
-    { zone: "America/Chicago", name: "미국", city: "시카고" },
-    { zone: "America/Los_Angeles", name: "미국", city: "LA" },
-    { zone: "America/Mexico_City", name: "멕시코", city: "멕시코시티" },
-    { zone: "America/Sao_Paulo", name: "브라질", city: "상파울루" },
-    { zone: "Australia/Sydney", name: "호주", city: "시드니" },
-    { zone: "Australia/Perth", name: "호주", city: "퍼스" },
-    { zone: "Pacific/Auckland", name: "뉴질랜드", city: "오클랜드" }
+    { zone: "Asia/Seoul", name: "대한민국", city: "서울", name_en: "South Korea", city_en: "Seoul" },
+    { zone: "Asia/Tokyo", name: "일본", city: "도쿄", name_en: "Japan", city_en: "Tokyo" },
+    { zone: "Asia/Shanghai", name: "중국", city: "상하이", name_en: "China", city_en: "Shanghai" },
+    { zone: "Asia/Hong_Kong", name: "홍콩", city: "홍콩", name_en: "Hong Kong", city_en: "Hong Kong" },
+    { zone: "Asia/Singapore", name: "싱가포르", city: "싱가포르", name_en: "Singapore", city_en: "Singapore" },
+    { zone: "Asia/Taipei", name: "대만", city: "타이베이", name_en: "Taiwan", city_en: "Taipei" },
+    { zone: "Asia/Bangkok", name: "태국", city: "방콕", name_en: "Thailand", city_en: "Bangkok" },
+    { zone: "Asia/Ho_Chi_Minh", name: "베트남", city: "호치민", name_en: "Vietnam", city_en: "Ho Chi Minh" },
+    { zone: "Asia/Jakarta", name: "인도네시아", city: "자카르타", name_en: "Indonesia", city_en: "Jakarta" },
+    { zone: "Asia/Dubai", name: "UAE", city: "두바이", name_en: "UAE", city_en: "Dubai" },
+    { zone: "Asia/Kolkata", name: "인도", city: "뉴델리", name_en: "India", city_en: "New Delhi" },
+    { zone: "Europe/London", name: "영국", city: "런던", name_en: "UK", city_en: "London" },
+    { zone: "Europe/Paris", name: "프랑스", city: "파리", name_en: "France", city_en: "Paris" },
+    { zone: "Europe/Berlin", name: "독일", city: "베를린", name_en: "Germany", city_en: "Berlin" },
+    { zone: "Europe/Moscow", name: "러시아", city: "모스크바", name_en: "Russia", city_en: "Moscow" },
+    { zone: "Europe/Istanbul", name: "터키", city: "이스탄불", name_en: "Turkey", city_en: "Istanbul" },
+    { zone: "America/New_York", name: "미국", city: "뉴욕", name_en: "USA", city_en: "New York" },
+    { zone: "America/Chicago", name: "미국", city: "시카고", name_en: "USA", city_en: "Chicago" },
+    { zone: "America/Los_Angeles", name: "미국", city: "LA", name_en: "USA", city_en: "LA" },
+    { zone: "America/Mexico_City", name: "멕시코", city: "멕시코시티", name_en: "Mexico", city_en: "Mexico City" },
+    { zone: "America/Sao_Paulo", name: "브라질", city: "상파울루", name_en: "Brazil", city_en: "Sao Paulo" },
+    { zone: "Australia/Sydney", name: "호주", city: "시드니", name_en: "Australia", city_en: "Sydney" },
+    { zone: "Australia/Perth", name: "호주", city: "퍼스", name_en: "Australia", city_en: "Perth" },
+    { zone: "Pacific/Auckland", name: "뉴질랜드", city: "오클랜드", name_en: "New Zealand", city_en: "Auckland" }
 ];
+
+function getLocalizedTZLabel(tzData) {
+    if (currentLang === "en") {
+        return `${tzData.name_en} - ${tzData.city_en}`;
+    }
+    return `${tzData.name} - ${tzData.city}`;
+}
 
 // --- Group Data Structure ---
 let groups = [];
 let activeGroupId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
-    document.title = `세계 시간 v${VERSION}`;
-    const versionBadge = document.getElementById("version-badge");
-    if (versionBadge) versionBadge.textContent = `ver ${VERSION}`;
     loadPersistence();
+    applyTranslations();
     initUI();
     initDragAndDrop();
     initSearchAndSelect();
@@ -97,13 +102,13 @@ function initUI() {
         const name = document.getElementById("custom-name").value.trim();
         const offH = parseInt(document.getElementById("custom-off-h").value) || 0;
         const offM = parseInt(document.getElementById("custom-off-m").value) || 0;
-        if (!name) return alert("이름을 입력하세요.");
+        if (!name) return showToast(t("toast_input_name"));
         addTimezone({ id: "tz-c-" + Date.now(), name, offH, offM, type: "custom" });
         document.getElementById("custom-name").value = "";
     };
 
     document.getElementById("add-group-btn").onclick = () => {
-        const name = prompt("새 그룹의 이름을 입력하세요:", "새 그룹");
+        const name = prompt(t("prompt_new_group"), t("nav_live"));
         if (name) {
             groups.push({ name, zones: [] });
             activeGroupId = groups.length - 1;
@@ -114,6 +119,18 @@ function initUI() {
     };
 
     document.getElementById("copy-all-btn").onclick = copyAllTimezones;
+
+    // Language Selector
+    const langSelect = document.getElementById("lang-select");
+    if (langSelect) {
+        langSelect.value = currentLang;
+        langSelect.onchange = (e) => {
+            setLanguage(e.target.value);
+            updateTZDropdown(); // Ensure dropdown is updated
+            renderGroups();
+            renderList();
+        };
+    }
 }
 
 function showToast(message) {
@@ -144,7 +161,7 @@ function switchMainTab(tab) {
     isRealtime = (tab === "live");
     const extraTimeToggle = document.getElementById("toggle-extra-time");
 
-    document.getElementById("status-text").textContent = isRealtime ? "동기화 중" : "시간 고정 모드";
+    document.getElementById("status-text").textContent = isRealtime ? t("status_sync") : t("status_fixed");
 
     // UI Refinement: Logically disable extra time toggle in Real-time mode
     if (extraTimeToggle) {
@@ -175,7 +192,7 @@ function renderGroups() {
         const editBtn = document.createElement("button");
         editBtn.className = "group-edit-btn";
         editBtn.innerHTML = "✎"; // Pencil or Edit icon
-        editBtn.title = "그룹 이름 변경";
+        editBtn.title = t("tooltip_edit");
         editBtn.onclick = (e) => {
             e.stopPropagation();
             renameGroup(idx);
@@ -184,18 +201,18 @@ function renderGroups() {
         const delBtn = document.createElement("button");
         delBtn.className = "group-del-btn";
         delBtn.innerHTML = "✕";
-        delBtn.title = "그룹 삭제";
+        delBtn.title = t("tooltip_delete");
         delBtn.onclick = (e) => {
             e.stopPropagation();
-            if (groups.length > 1 && confirm("정말로 이 그룹을 삭제하시겠습니까?")) {
+            if (groups.length > 1 && confirm(t("confirm_delete_group"))) {
                 groups.splice(idx, 1);
                 activeGroupId = Math.max(0, activeGroupId - 1);
                 savePersistence();
                 renderGroups();
                 renderList();
-                showToast("그룹이 삭제되었습니다.");
+                showToast(t("toast_group_deleted"));
             } else if (groups.length <= 1) {
-                showToast("최소 하나 이상의 그룹이 필요합니다.");
+                showToast(t("toast_group_min"));
             }
         };
 
@@ -209,12 +226,12 @@ function renderGroups() {
 
 function renameGroup(idx) {
     const group = groups[idx];
-    const newName = prompt("그룹 이름 수정:", group.name);
+    const newName = prompt(t("prompt_rename_group"), group.name);
     if (newName && newName.trim()) {
         group.name = newName.trim();
         savePersistence();
         renderGroups();
-        showToast("그룹 이름이 변경되었습니다.");
+        showToast(t("toast_name_changed"));
     }
 }
 
@@ -228,14 +245,14 @@ function renderList() {
     if (theadRow) {
         theadRow.innerHTML = `
             <th style="width: 30px;"></th>
-            <th style="width: 180px;">지역 / 국가</th>
-            <th style="width: 140px;">UTC Offset</th>
+            <th style="width: 180px;">${t("th_region")}</th>
+            <th style="width: 140px;">${t("th_utc_offset")}</th>
         `;
         // Column Reorder: Time then Day (Grouped visually) - Left Aligned
         for (let i = 0; i < effectiveSlotCount; i++) {
-            theadRow.innerHTML += `<th class="dynamic-col">${i === 0 ? "시간 / 요일" : "추가 시간 / 요일"}</th>`;
+            theadRow.innerHTML += `<th class="dynamic-col">${i === 0 ? t("th_time_day_main") : t("th_time_day_extra")}</th>`;
         }
-        theadRow.innerHTML += "<th style=\"width: 100px;\">액션</th>";
+        theadRow.innerHTML += `<th style="width: 100px;">${t("th_action")}</th>`;
     }
 
     const container = document.getElementById("clocks-container");
@@ -247,7 +264,7 @@ function renderList() {
     utcTr.id = "tz-row-utc";
     let utcInner = `
         <td></td>
-        <td><div class="zone-info"><span class="zone-code">[UTC]</span><span class="zone-name">표준시 (기준)</span></div></td>
+        <td><div class="zone-info"><span class="zone-code">[UTC]</span><span class="zone-name">${t("utc_name")}</span></div></td>
         <td><span class="offset-text">UTC+00:00</span></td>
     `;
     for (let i = 0; i < effectiveSlotCount; i++) {
@@ -261,7 +278,7 @@ function renderList() {
             </td>
         `;
     }
-    utcInner += "<td><div class=\"btn-group\"><button class=\"sm-btn\" onclick=\"copyRow('utc')\" title=\"복사\">📋</button></div></td>";
+    utcInner += `<td><div class="btn-group"><button class="sm-btn" onclick="copyRow('utc')" title="${t("tooltip_copy")}">📋</button></div></td>`;
     utcTr.innerHTML = utcInner;
     container.appendChild(utcTr);
 
@@ -278,9 +295,10 @@ function renderList() {
         tr.className = "time-row";
         tr.id = `tz-row-${tz.id}`;
         tr.draggable = true;
+        const displayName = currentLang === "en" ? (tz.name_en || tz.name) : (tz.name_ko || tz.name);
         let inner = `
             <td class="drag-handle">☰</td>
-            <td><div class="zone-info"><span class="zone-code"></span><span class="zone-name">${tz.name}</span></div></td>
+            <td><div class="zone-info"><span class="zone-code"></span><span class="zone-name">${displayName}</span></div></td>
             <td><span class="offset-text"></span></td>
         `;
         for (let i = 0; i < effectiveSlotCount; i++) {
@@ -295,7 +313,7 @@ function renderList() {
             `;
         }
         inner += `
-            <td><div class="btn-group"><button class="sm-btn" onclick="copyRow('${tz.id}')" title="복사">📋</button>
+            <td><div class="btn-group"><button class="sm-btn" onclick="copyRow('${tz.id}')" title="${t("tooltip_copy")}">📋</button>
                 <button class="sm-btn danger" onclick="removeTimezone('${tz.id}')">✕</button></div></td>
         `;
         tr.innerHTML = inner;
@@ -369,7 +387,7 @@ function updateRow(id, tz) {
     let zoneCodeMain = "";
 
     if (tz.type === "custom") {
-        zoneCodeMain = "커스텀";
+        zoneCodeMain = t("label_custom");
         offsetStr = `UTC${tz.offH >= 0 ? "+" : "-"}${pad(tz.offH)}:${pad(tz.offM)}`;
     } else {
         const offF = new Intl.DateTimeFormat("en-US", { timeZone: tz.zone, timeZoneName: "longOffset" });
@@ -390,6 +408,14 @@ function updateRow(id, tz) {
     const offsetTextEl = row.querySelector(".offset-text");
     if (zoneCodeEl) zoneCodeEl.textContent = `[${zoneCodeMain}]`;
     if (offsetTextEl) offsetTextEl.textContent = offsetStr;
+
+    // Helper: updateDN inside updateRow
+    const updateDN = (hour, el) => {
+        if (!el) return;
+        const isDay = (hour >= 6 && hour <= 18);
+        el.textContent = isDay ? "☀️" : "🌙";
+        el.title = isDay ? t("dn_day") : t("dn_night");
+    };
 
     const effectiveSlotCount = isRealtime ? 1 : slotCount;
     for (let i = 0; i < effectiveSlotCount; i++) {
@@ -416,33 +442,26 @@ function updateRow(id, tz) {
         const dayBadge = row.querySelector(`.day-slot-${i}`) || row.querySelector(`#utc-day-${i}`);
         const dnIcon = row.querySelector(`.dn-slot-${i}`) || row.querySelector(`#utc-dn-${i}`);
 
-        // Day/Night Logic: Day: 06:00 ~ 18:00
-        const updateDN = (hour, el) => {
-            if (!el) return;
-            const isDay = (hour >= 6 && hour <= 18);
-            el.textContent = isDay ? "☀️" : "🌙";
-            el.title = isDay ? "낮 (06:00~18:00)" : "밤 (18:01~05:59)";
-        };
+        let displayHour = 0;
+        let displayDow = 0;
+        let timeStr = "";
 
         if (tz.type === "custom") {
-            const h = t.getUTCHours();
-            const timeStr = `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())} ${pad(h)}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}`;
-            if (input && document.activeElement !== input) input.value = timeStr;
-            const dIdx = t.getUTCDay();
-            if (dayBadge) {
-                dayBadge.textContent = DAYS_KR[dIdx];
-                dayBadge.className = "day-badge " + (dIdx === 0 ? "day-sun" : (dIdx === 6 ? "day-sat" : ""));
-            }
-            updateDN(h, dnIcon);
+            displayHour = t.getUTCHours();
+            displayDow = t.getUTCDay();
+            timeStr = `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())} ${pad(displayHour)}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}`;
         } else {
-            const h = parseInt(t.str.split(" ")[1].split(":")[0]);
-            if (input && document.activeElement !== input) input.value = t.str;
-            if (dayBadge) {
-                dayBadge.textContent = DAYS_KR[t.dow];
-                dayBadge.className = "day-badge " + (t.dow === 0 ? "day-sun" : (t.dow === 6 ? "day-sat" : ""));
-            }
-            updateDN(h, dnIcon);
+            displayHour = parseInt(t.str.split(" ")[1].split(":")[0]);
+            displayDow = t.dow;
+            timeStr = t.str;
         }
+
+        if (input && document.activeElement !== input) input.value = timeStr;
+        if (dayBadge) {
+            dayBadge.textContent = I18N_DATA[currentLang].days[displayDow];
+            dayBadge.className = "day-badge " + (displayDow === 0 ? "day-sun" : (displayDow === 6 ? "day-sat" : ""));
+        }
+        updateDN(displayHour, dnIcon);
     }
 }
 
@@ -450,7 +469,7 @@ function handleTimeChange(val, timezone, slotIdx) {
     if (isRealtime) return;
     const date = new Date(val.replace(" ", "T"));
     if (isNaN(date.getTime())) {
-        showToast("유효하지 않은 날짜 형식입니다.");
+        showToast(t("toast_invalid_date"));
         renderList();
         return;
     }
@@ -479,28 +498,71 @@ function handleTimeChange(val, timezone, slotIdx) {
 }
 
 // --- Utils ---
+// Clear and Redraw Options on init/lang change
+function updateTZDropdown() {
+    const quickSelect = document.getElementById("tz-quick-select");
+    if (!quickSelect) return;
+    const placeholder = quickSelect.options[0]; // popular city select
+    quickSelect.innerHTML = "";
+    quickSelect.appendChild(placeholder);
+    TZ_DATABASE.forEach(t => {
+        const o = document.createElement("option");
+        o.value = t.zone;
+        o.textContent = getLocalizedTZLabel(t);
+        quickSelect.appendChild(o);
+    });
+}
+
 function initSearchAndSelect() {
     const input = document.getElementById("tz-search-input");
     const results = document.getElementById("search-results");
     const quickSelect = document.getElementById("tz-quick-select");
-    TZ_DATABASE.forEach(t => { const o = document.createElement("option"); o.value = t.zone; o.textContent = `${t.name} - ${t.city}`; quickSelect.appendChild(o); });
-    quickSelect.onchange = (e) => { const d = TZ_DATABASE.find(t => t.zone === e.target.value); if (d) addTimezone({ id: "tz-" + Date.now(), zone: d.zone, name: `${d.name} - ${d.city}`, type: "standard" }); quickSelect.value = ""; };
+
+    updateTZDropdown();
+
+    quickSelect.onchange = (e) => {
+        const d = TZ_DATABASE.find(t => t.zone === e.target.value);
+        if (d) addTimezone({ id: "tz-" + Date.now(), zone: d.zone, name_ko: `${d.name} - ${d.city}`, name_en: `${d.name_en} - ${d.city_en}`, type: "standard" });
+        quickSelect.value = "";
+    };
+
     input.oninput = () => {
         const v = input.value.trim().toLowerCase();
         if (!v) { results.style.display = "none"; return; }
-        const m = TZ_DATABASE.filter(t => t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v));
-        results.innerHTML = m.map(t => `<div class="tz-item" onclick="addFromSearch('${t.zone}', '${t.name} - ${t.city}')">${t.name} - ${t.city}</div>`).join("");
+        const m = TZ_DATABASE.filter(t =>
+            t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v) ||
+            t.name_en.toLowerCase().includes(v) || t.city_en.toLowerCase().includes(v)
+        );
+        results.innerHTML = m.map(t => `<div class="tz-item" onclick="addFromSearchWithData('${t.zone}')">${getLocalizedTZLabel(t)}</div>`).join("");
         results.style.display = m.length ? "block" : "none";
     };
+
     document.getElementById("show-all-tz").onclick = () => {
         const o = document.getElementById("full-tz-overlay");
-        document.getElementById("full-tz-list").innerHTML = TZ_DATABASE.map(t => `<div class="tz-item" onclick="addFromSearch('${t.zone}', '${t.name} - ${t.city}'); document.getElementById('full-tz-overlay').style.display='none'">${t.name} - ${t.city}</div>`).join("");
+        document.getElementById("full-tz-list").innerHTML = TZ_DATABASE.map(t =>
+            `<div class="tz-item" onclick="addFromSearchWithData('${t.zone}'); document.getElementById('full-tz-overlay').style.display='none'">${getLocalizedTZLabel(t)}</div>`
+        ).join("");
         o.style.display = "flex";
     };
     document.getElementById("close-overlay").onclick = () => document.getElementById("full-tz-overlay").style.display = "none";
 }
 
-function addFromSearch(zone, label) { addTimezone({ id: "tz-" + Date.now(), zone, name: label, type: "standard" }); document.getElementById("tz-search-input").value = ""; document.getElementById("search-results").style.display = "none"; }
+function addFromSearchWithData(zone) {
+    const d = TZ_DATABASE.find(t => t.zone === zone);
+    if (d) {
+        addTimezone({
+            id: "tz-" + Date.now(),
+            zone: d.zone,
+            name_ko: `${d.name} - ${d.city}`,
+            name_en: `${d.name_en} - ${d.city_en}`,
+            type: "standard"
+        });
+    }
+    document.getElementById("tz-search-input").value = "";
+    document.getElementById("search-results").style.display = "none";
+}
+
+// function addFromSearch is now replaced by addFromSearchWithData
 function addTimezone(tz) { groups[activeGroupId].zones.push(tz); savePersistence(); renderList(); updateClocks(); }
 function removeTimezone(id) { groups[activeGroupId].zones = groups[activeGroupId].zones.filter(z => z.id !== id); savePersistence(); renderList(); updateClocks(); }
 function initDragAndDrop() {
@@ -532,7 +594,7 @@ async function copyRow(id) {
 async function copyAllTimezones() {
     const lineArr = [...document.querySelectorAll(".time-row")].map(getRowCopyText);
     await navigator.clipboard.writeText(lineArr.join("\n"));
-    showToast("전체 복사 완료");
+    showToast(t("toast_copy_all_success"));
 }
 
 
@@ -544,7 +606,7 @@ function initCalculators() {
     pS.valueAsDate = pE.valueAsDate = oS.valueAsDate = new Date();
 
     const calc = () => {
-        if (pS.valueAsDate && pE.valueAsDate) document.getElementById("period-res").textContent = Math.round((pE.valueAsDate - pS.valueAsDate) / 86400000) + " 일";
+        if (pS.valueAsDate && pE.valueAsDate) document.getElementById("period-res").textContent = Math.round((pE.valueAsDate - pS.valueAsDate) / 86400000) + t("unit_days_suffix");
         if (oS.valueAsDate) {
             const r = new Date(oS.valueAsDate); const v = parseInt(oV.value) || 0;
             if (oU.value === "day") r.setDate(r.getDate() + v);
@@ -597,12 +659,12 @@ async function copyText(elementId, isInput = false) {
     const text = (isInput ? el.value : (el.textContent || "")).trim();
     if (!text) return;
     await navigator.clipboard.writeText(text);
-    showToast("복사 완료");
+    showToast(t("toast_copy_all_success"));
 }
 
 function savePersistence() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, activeGroupId, slotCount })); }
 function loadPersistence() {
     const s = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("GTV_v170_Data") || localStorage.getItem("GTV_v160_Data") || localStorage.getItem("GTV_v150_Data") || localStorage.getItem("GTV_v140_Data");
     if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId || 0; slotCount = Math.min(2, Math.max(1, d.slotCount || 1)); }
-    else groups = [{ name: "기본 그룹", zones: [{ id: "seoul", name: "대한민국 - 서울", zone: "Asia/Seoul", type: "standard" }] }];
+    else groups = [{ name: t("default_group_name"), zones: [{ id: "seoul", name_ko: "대한민국 - 서울", name_en: "South Korea - Seoul", zone: "Asia/Seoul", type: "standard" }] }];
 }
