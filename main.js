@@ -1,5 +1,5 @@
 let isRealtime = true;
-let globalTimes = [new Date(), new Date(), new Date()]; // Multi-slot dates
+let globalTimes = [new Date(), new Date()]; // base + optional extra slot
 let slotCount = 1;
 let uiScale = 1.0;
 const VERSION = "1.4.0";
@@ -37,6 +37,9 @@ let groups = [];
 let activeGroupId = 0;
 
 document.addEventListener('DOMContentLoaded', () => {
+    document.title = `세계 시간 v${VERSION}`;
+    const versionBadge = document.getElementById('version-badge');
+    if (versionBadge) versionBadge.textContent = `ver ${VERSION}`;
     loadPersistence();
     initUI();
     initDragAndDrop();
@@ -73,11 +76,11 @@ function initUI() {
     document.getElementById('scale-down').onclick = () => setScale(uiScale - 0.1);
     if (localStorage.getItem('GTV_Scale')) setScale(parseFloat(localStorage.getItem('GTV_Scale')));
 
-    // Slot Count
-    const slotSelect = document.getElementById('slot-count-select');
-    slotSelect.value = slotCount;
-    slotSelect.onchange = (e) => {
-        slotCount = parseInt(e.target.value);
+    // Extra Time Toggle (fixed mode only)
+    const extraTimeToggle = document.getElementById('toggle-extra-time');
+    extraTimeToggle.checked = slotCount > 1;
+    extraTimeToggle.onchange = (e) => {
+        slotCount = e.target.checked ? 2 : 1;
         renderList();
         updateClocks();
         savePersistence();
@@ -117,12 +120,14 @@ function switchMainTab(tab) {
     document.getElementById('top-control-bar').style.display = isCalc ? 'none' : 'flex';
 
     isRealtime = (tab === 'live');
+    const extraTimeToggle = document.getElementById('toggle-extra-time');
     if (isRealtime) {
-        slotCount = 1; // Force 1 slot for live
-        document.getElementById('slot-count-select').value = 1;
-        document.getElementById('slot-count-select').disabled = true;
+        slotCount = 1;
+        extraTimeToggle.checked = false;
+        extraTimeToggle.disabled = true;
     } else {
-        document.getElementById('slot-count-select').disabled = false;
+        extraTimeToggle.disabled = false;
+        slotCount = extraTimeToggle.checked ? 2 : 1;
     }
 
     document.getElementById('status-text').textContent = isRealtime ? "동기화 중" : "시간 고정 모드";
@@ -160,7 +165,7 @@ function renderList() {
         <th style="width: 110px;">UTC Offset</th>
     `;
     for (let i = 0; i < slotCount; i++) {
-        theadRow.innerHTML += `<th class="dynamic-col">시간 ${slotCount > 1 ? i + 1 : ''}</th><th class="dynamic-col" style="width: 55px;">요일</th>`;
+        theadRow.innerHTML += `<th class="dynamic-col" style="width: 55px;">요일</th><th class="dynamic-col">${i === 0 ? '시간' : '추가 시간'}</th>`;
     }
     theadRow.innerHTML += `<th style="width: 80px;">액션</th>`;
 
@@ -179,8 +184,8 @@ function renderList() {
     `;
     for (let i = 0; i < slotCount; i++) {
         utcInner += `
-            <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-${i}" spellcheck="false" data-slot="${i}"></td>
             <td class="dynamic-cell"><span class="day-badge" id="utc-day-${i}">-</span></td>
+            <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-${i}" spellcheck="false" data-slot="${i}"></td>
         `;
     }
     utcInner += `<td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td>`;
@@ -209,8 +214,8 @@ function renderList() {
         `;
         for (let i = 0; i < slotCount; i++) {
             inner += `
-                <td class="dynamic-cell"><input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? 'readonly' : ''} data-slot="${i}"></td>
                 <td class="dynamic-cell"><span class="day-badge day-slot-${i}"></span></td>
+                <td class="dynamic-cell"><input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? 'readonly' : ''} data-slot="${i}"></td>
             `;
         }
         inner += `
@@ -267,6 +272,10 @@ function getTimezoneOffset(zone, date) {
     if (!m) return 0;
     const sign = offStr.includes('+') ? 1 : -1;
     return sign * (parseInt(m[1]) * 60 + parseInt(m[2] || 0));
+}
+
+function pad(v) {
+    return String(v).padStart(2, '0');
 }
 
 // --- Clock Logic ---
@@ -390,27 +399,39 @@ function initDragAndDrop() {
 function getAfter(c, y) { const drs = [...c.querySelectorAll('.time-row:not(.dragging):not(.static)')]; return drs.reduce((clo, ch) => { const b = ch.getBoundingClientRect(); const o = y - b.top - b.height / 2; if (o < 0 && o > clo.off) return { off: o, el: ch }; return clo; }, { off: Number.NEGATIVE_INFINITY }).el; }
 function saveOrder() { const ids = [...document.querySelectorAll('.time-row:not(.static)')].map(r => r.id.replace('tz-row-', '')); groups[activeGroupId].zones.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); savePersistence(); }
 
+function toCompactDateTime(iso) {
+    const m = (iso || '').match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2}:\d{2})$/);
+    if (!m) return (iso || '').trim();
+    return `${m[1]}${m[2]}${m[3]} ${m[4]}`;
+}
+
+function getRowCopyText(row) {
+    const zoneCode = (row.querySelector('.zone-code')?.textContent || '[UTC]').trim();
+    const times = [...row.querySelectorAll('.time-input')].map(i => toCompactDateTime(i.value)).filter(Boolean);
+    if (!times.length) return `${zoneCode}`;
+    return `${zoneCode} ${times.join(' - ')}`;
+}
+
 async function copyRow(id) {
     const row = document.getElementById(`tz-row-${id}`);
-    const name = row.querySelector('.zone-name').textContent;
-    const off = row.querySelector('.offset-text').textContent;
-    const times = [...row.querySelectorAll('.time-input')].map(i => i.value);
-    await navigator.clipboard.writeText(`${name.replace(/\s+/g, '_')}_${off} | ${times.join(' - ')}`);
+    if (!row) return;
+    await navigator.clipboard.writeText(getRowCopyText(row));
 }
 
 async function copyAllTimezones() {
-    let t = `[Group: ${groups[activeGroupId].name}]\n`;
-    const rows = [...document.querySelectorAll('.time-row')];
-    rows.forEach(r => {
-        const name = r.querySelector('.zone-name').textContent;
-        const off = r.querySelector('.offset-text').textContent;
-        const times = [...r.querySelectorAll('.time-input')].map(i => i.value);
-        t += `${name.replace(/\s+/g, '_')}_${off} | ${times.join(' - ')}\n`;
-    });
-    await navigator.clipboard.writeText(t);
+    const lines = [...document.querySelectorAll('.time-row')].map(getRowCopyText);
+    await navigator.clipboard.writeText(lines.join('\n'));
     alert("복사 완료");
 }
 
+async function copyText(elementId) {
+    const el = document.getElementById(elementId);
+    if (!el) return;
+    const text = (el.textContent || '').trim();
+    if (!text) return;
+    await navigator.clipboard.writeText(text);
+    alert("복사 완료");
+}
 function initCalculators() {
     const pS = document.getElementById('period-start'); const pE = document.getElementById('period-end');
     const oS = document.getElementById('offset-start'); const oV = document.getElementById('off-val'); const oU = document.getElementById('off-unit');
@@ -425,6 +446,6 @@ function initCalculators() {
 function savePersistence() { localStorage.setItem('GTV_v140_Data', JSON.stringify({ groups, activeGroupId, slotCount })); }
 function loadPersistence() {
     const s = localStorage.getItem('GTV_v140_Data');
-    if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId; slotCount = d.slotCount || 1; }
+    if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId; slotCount = Math.min(2, Math.max(1, d.slotCount || 1)); }
     else groups = [{ name: "기본 그룹", zones: [{ id: 'seoul', name: '대한민국 - 서울', zone: 'Asia/Seoul', type: 'standard' }] }];
 }
