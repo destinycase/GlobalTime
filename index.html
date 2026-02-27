@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>세계 시간 v1.4.0</title>
+    <link rel="stylesheet" href="style.css?v=130">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-layout">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <span class="logo-icon">🌐</span>
+                <div class="logo-text">
+                    <h1>세계 시간</h1>
+                    <span class="version-badge">ver 1.3.0</span>
+                </div>
+            </div>
+
+            <nav class="nav-menu">
+                <button class="nav-item active" data-tab="live">⏱️ 실시간 시간</button>
+                <button class="nav-item" data-tab="fixed">📍 고정 시간</button>
+                <button class="nav-item" data-tab="calc">📅 계산기 도구</button>
+            </nav>
+
+            <div class="sidebar-footer">
+                <div class="widget-title">UI 스케일 조절</div>
+                <div class="scale-control">
+                    <button class="scale-btn" id="scale-down">－</button>
+                    <span id="scale-val">100%</span>
+                    <button class="scale-btn" id="scale-up">＋</button>
+                </div>
+                <!-- App Status Label -->
+                <div id="app-status" style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
+                    <span class="status-badge" style="background: none; padding:0;">
+                        <span class="pulse" style="width: 6px; height: 6px;"></span>
+                    </span>
+                    <span id="status-text" style="font-size: 9px; color: var(--text-dim);">동기화 중</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Dashboard -->
+        <main class="main-content">
+            <!-- Group Tabs Bar (Live/Fixed Only) -->
+            <div id="group-tabs-container" class="group-tabs">
+                <!-- Tabs rendered by JS -->
+                <button class="sm-btn" id="add-group-btn" title="새 그룹 추가">＋</button>
+            </div>
+
+            <!-- Global Control Bar (Live/Fixed Only) -->
+            <div id="top-control-bar" class="control-bar">
+                <div class="control-group">
+                    <span class="control-label">타임존 추가</span>
+                    <div style="position: relative;">
+                        <input type="text" id="tz-search-input" class="form-input" placeholder="도시 검색..."
+                            style="width: 120px;">
+                        <div id="search-results" class="overlay"
+                            style="position: absolute; top:100%; left:0; right:0; display:none; background: #1e293b; z-index: 100;">
+                        </div>
+                    </div>
+                    <select id="tz-quick-select" class="form-select" style="width: 130px;">
+                        <option value="">인기 도시 선택...</option>
+                    </select>
+                    <button id="show-all-tz" class="icon-btn">📑 목록</button>
+                </div>
+
+                <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                    <span class="control-label">커스텀</span>
+                    <input type="text" id="custom-name" class="form-input" placeholder="이름" style="width: 80px;">
+                    <input type="number" id="custom-off-h" class="form-input" value="0" style="width: 40px;">
+                    <span style="font-size:9px;">:</span>
+                    <input type="number" id="custom-off-m" class="form-input" value="0" style="width: 40px;">
+                    <button id="add-custom-btn" class="sm-btn">추가</button>
+                </div>
+
+                <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                    <span class="control-label">시간 표시 수</span>
+                    <select id="slot-count-select" class="form-select" style="width: 50px;">
+                        <option value="1">1</option>
+                        <option value="2">2</option>
+                        <option value="3">3</option>
+                    </select>
+                </div>
+
+                <div class="control-group" style="margin-left: auto;">
+                    <button id="copy-all-btn" class="sm-btn"
+                        style="background: var(--accent-glow); color: var(--accent);">📄 전체 복사</button>
+                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 9px;">
+                        <input type="checkbox" id="toggle-dst" checked> DST
+                    </label>
+                </div>
+            </div>
+
+            <!-- Content Screens -->
+            <section id="timezone-section" class="tab-content active">
+                <table class="data-table">
+                    <thead id="table-head">
+                        <tr>
+                            <th style="width: 30px;"></th>
+                            <th style="width: 180px;">지역 / 국가</th>
+                            <th style="width: 110px;">UTC Offset</th>
+                            <!-- Time/Day columns dynamic -->
+                            <th class="dynamic-col">시간</th>
+                            <th class="dynamic-col" style="width: 60px;">요일</th>
+                            <th style="width: 80px;">액션</th>
+                        </tr>
+                    </thead>
+                    <tbody id="clocks-container">
+                        <!-- UTC Row -->
+                        <tr class="time-row static" id="tz-row-utc">
+                            <td></td>
+                            <td>
+                                <div class="zone-info">
+                                    <span class="zone-code">[UTC]</span>
+                                    <span class="zone-name">표준시 (기준)</span>
+                                </div>
+                            </td>
+                            <td><span class="offset-text">UTC+0</span></td>
+                            <!-- Dynamic Content -->
+                            <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-0"
+                                    spellcheck="false" data-slot="0"></td>
+                            <td class="dynamic-cell"><span class="day-badge" id="utc-day-0">-</span></td>
+                            <td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td>
+                        </tr>
+                        <!-- Dynamic Rows -->
+                    </tbody>
+                </table>
+            </section>
+
+            <section id="calc-section" class="tab-content">
+                <div class="calc-grid">
+                    <div class="calc-card">
+                        <h2>📅 기간(D-Day) 계산</h2>
+                        <div class="calc-form">
+                            <div class="form-group"><label>시작일</label><input type="date" id="period-start"
+                                    class="form-input"></div>
+                            <div class="form-group"><label>종료일</label><input type="date" id="period-end"
+                                    class="form-input"></div>
+                            <div class="calc-result-box">
+                                <div>
+                                    <div style="font-size: 9px; color: var(--text-dim);">총 일수</div><span
+                                        class="result-val" id="period-res">0 일</span>
+                                </div>
+                                <button class="sm-btn" onclick="copyText('period-res')">복사</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="calc-card">
+                        <h2>🚀 날짜 이동 계산</h2>
+                        <div class="calc-form">
+                            <div class="form-group"><label>기준일</label><input type="date" id="offset-start"
+                                    class="form-input"></div>
+                            <div class="form-group"><input type="number" id="off-val" class="form-input"
+                                    style="width: 60px;" value="0">
+                                <select id="off-unit" class="form-select">
+                                    <option value="day">일</option>
+                                    <option value="week">주</option>
+                                    <option value="month">월</option>
+                                </select><span style="font-size: 10px;">후</span>
+                            </div>
+                            <div class="calc-result-box">
+                                <div>
+                                    <div style="font-size: 9px; color: var(--text-dim);">결과 날짜</div><span
+                                        class="result-val" id="offset-res">-</span>
+                                </div>
+                                <button class="sm-btn" onclick="copyText('offset-res')">복사</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Overlay -->
+    <div id="full-tz-overlay" class="overlay">
+        <div class="overlay-content">
+            <div class="overlay-header">
+                <h3>타임존 선택</h3><button id="close-overlay" class="icon-btn">✕</button>
+            </div>
+            <div id="full-tz-list" class="tz-grid"></div>
+        </div>
+    </div>
+
+    <script src="main.js?v=130"></script>
+</body>
+
+</html>
