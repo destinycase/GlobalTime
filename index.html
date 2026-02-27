@@ -4,8 +4,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>세계 시간 v1.4.0</title>
-    <link rel="stylesheet" href="style.css?v=130">
+    <title>Global Time v2.0.0</title>
+    <link rel="stylesheet" href="style.css?v=200">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -20,8 +20,8 @@
             <div class="logo">
                 <span class="logo-icon">🌐</span>
                 <div class="logo-text">
-                    <h1>세계 시간</h1>
-                    <span class="version-badge" id="version-badge">ver 1.4.0</span>
+                    <h1>Global Time</h1>
+                    <span class="version-badge" id="version-badge">ver 2.0.0</span>
                 </div>
             </div>
 
@@ -32,12 +32,6 @@
             </nav>
 
             <div class="sidebar-footer">
-                <div class="widget-title">UI 스케일 조절</div>
-                <div class="scale-control">
-                    <button class="scale-btn" id="scale-down">－</button>
-                    <span id="scale-val">100%</span>
-                    <button class="scale-btn" id="scale-up">＋</button>
-                </div>
                 <!-- App Status Label -->
                 <div id="app-status" style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
                     <span class="status-badge" style="background: none; padding:0;">
@@ -59,7 +53,7 @@
             <!-- Global Control Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
             <div id="top-control-bar" class="control-bar">
                 <div class="control-group">
-                    <span class="control-label">타임존 추가</span>
+                    <span class="control-label-large">타임존 추가</span>
                     <div style="position: relative;">
                         <input type="text" id="tz-search-input" class="form-input" placeholder="도시 검색..."
                             style="width: 120px;">
@@ -74,26 +68,30 @@
                 </div>
 
                 <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
-                    <span class="control-label">커스텀</span>
+                    <span class="control-label-large">커스텀</span>
                     <input type="text" id="custom-name" class="form-input" placeholder="이름" style="width: 80px;">
-                    <input type="number" id="custom-off-h" class="form-input" value="0" style="width: 40px;">
-                    <span style="font-size:9px;">:</span>
-                    <input type="number" id="custom-off-m" class="form-input" value="0" style="width: 40px;">
+                    <select id="custom-off-h" class="form-select" style="width: 80px;"></select>
+                    <span style="font-size:12px;">:</span>
+                    <select id="custom-off-m" class="form-select" style="width: 70px;">
+                        <option value="0">00</option>
+                        <option value="15">15</option>
+                        <option value="30">30</option>
+                        <option value="45">45</option>
+                    </select>
                     <button id="add-custom-btn" class="sm-btn">추가</button>
                 </div>
 
                 <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
-                    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-size: 9px;">
-                        <input type="checkbox" id="toggle-extra-time"> 추가 시간 표시
+                    <label class="control-label-large"
+                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        추가 시간 표시
+                        <input type="checkbox" id="toggle-extra-time">
                     </label>
                 </div>
 
                 <div class="control-group" style="margin-left: auto;">
                     <button id="copy-all-btn" class="sm-btn"
-                        style="background: var(--accent-glow); color: var(--accent);">📄 전체 복사</button>
-                    <label style="display: flex; align-items: center; gap: 5px; cursor: pointer; font-size: 9px;">
-                        <input type="checkbox" id="toggle-dst" checked> DST
-                    </label>
+                        style="background: var(--accent-glow); color: var(--accent);" title="전체 복사">📋 전체 복사</button>
                 </div>
             </div>
 
@@ -106,8 +104,8 @@
                             <th style="width: 180px;">지역 / 국가</th>
                             <th style="width: 110px;">UTC Offset</th>
                             <!-- Day/Time columns dynamic -->
-                            <th class="dynamic-col" style="width: 60px;">요일</th>
                             <th class="dynamic-col">시간</th>
+                            <th class="dynamic-col" style="width: 60px;">요일</th>
                             <th style="width: 80px;">액션</th>
                         </tr>
                     </thead>
@@ -126,17 +124,52 @@
                             <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-0"
                                     spellcheck="false" data-slot="0"></td>
                             <td class="dynamic-cell"><span class="day-badge" id="utc-day-0">-</span></td>
-                            <td><button class="sm-btn" onclick="copyRow('utc')">복사</button></td>
+                            <td><button class="sm-btn" onclick="copyRow('utc')" title="복사">📋</button></td>
                         </tr>
                         <!-- Dynamic Rows -->
                     </tbody>
                 </table>
             </section>
 
-            <section id="calc-section" class="tab-content">
+            <section id="calc-section" class="tab-content" style="overflow-y: auto;">
                 <div class="calc-grid">
+                    <!-- Unit Converter Card -->
                     <div class="calc-card">
-                        <h2>📅 기간(D-Day) 계산</h2>
+                        <h2>🔄 시간 단위 변환기</h2>
+                        <div class="calc-form converter-v-list">
+                            <div class="conv-row">
+                                <label>일 (Day)</label>
+                                <div class="conv-input-group">
+                                    <input type="number" id="conv-day" class="form-input" placeholder="0">
+                                    <button class="sm-btn" onclick="copyText('conv-day', true)">📋</button>
+                                </div>
+                            </div>
+                            <div class="conv-row">
+                                <label>시 (Hour)</label>
+                                <div class="conv-input-group">
+                                    <input type="number" id="conv-hour" class="form-input" placeholder="0">
+                                    <button class="sm-btn" onclick="copyText('conv-hour', true)">📋</button>
+                                </div>
+                            </div>
+                            <div class="conv-row">
+                                <label>분 (Minute)</label>
+                                <div class="conv-input-group">
+                                    <input type="number" id="conv-min" class="form-input" placeholder="0">
+                                    <button class="sm-btn" onclick="copyText('conv-min', true)">📋</button>
+                                </div>
+                            </div>
+                            <div class="conv-row">
+                                <label>초 (Second)</label>
+                                <div class="conv-input-group">
+                                    <input type="number" id="conv-sec" class="form-input" placeholder="0">
+                                    <button class="sm-btn" onclick="copyText('conv-sec', true)">📋</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="calc-card">
+                        <h2>📅 기간 계산</h2>
                         <div class="calc-form">
                             <div class="form-group"><label>시작일</label><input type="date" id="period-start"
                                     class="form-input"></div>
@@ -147,7 +180,7 @@
                                     <div style="font-size: 9px; color: var(--text-dim);">총 일수</div><span
                                         class="result-val" id="period-res">0 일</span>
                                 </div>
-                                <button class="sm-btn" onclick="copyText('period-res')">복사</button>
+                                <button class="sm-btn" onclick="copyText('period-res')" title="복사">📋</button>
                             </div>
                         </div>
                     </div>
@@ -156,20 +189,21 @@
                         <div class="calc-form">
                             <div class="form-group"><label>기준일</label><input type="date" id="offset-start"
                                     class="form-input"></div>
-                            <div class="form-group"><input type="number" id="off-val" class="form-input"
-                                    style="width: 60px;" value="0">
+                            <div class="form-group">
+                                <input type="number" id="off-val" class="form-input"
+                                    style="width: 70px; text-align: center;" value="0">
                                 <select id="off-unit" class="form-select">
                                     <option value="day">일</option>
                                     <option value="week">주</option>
                                     <option value="month">월</option>
-                                </select><span style="font-size: 10px;">후</span>
+                                </select><span class="label-large" style="margin-left: 5px;">후</span>
                             </div>
                             <div class="calc-result-box">
                                 <div>
                                     <div style="font-size: 9px; color: var(--text-dim);">결과 날짜</div><span
                                         class="result-val" id="offset-res">-</span>
                                 </div>
-                                <button class="sm-btn" onclick="copyText('offset-res')">복사</button>
+                                <button class="sm-btn" onclick="copyText('offset-res')" title="복사">📋</button>
                             </div>
                         </div>
                     </div>
@@ -188,7 +222,10 @@
         </div>
     </div>
 
-    <script src="main.js?v=130"></script>
+    <!-- Toast Container -->
+    <div id="toast-container" class="toast-container"></div>
+
+    <script src="main.js?v=200"></script>
 </body>
 
 </html>
