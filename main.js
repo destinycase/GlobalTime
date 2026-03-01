@@ -2,8 +2,8 @@ let isRealtime = true;
 let globalTimes = [new Date(), new Date()];
 let slotCount = 1;
 let uiScale = 1.0;
-const VERSION = "3.0.0";
-const STORAGE_KEY = "GTV_v300_Data";
+const VERSION = "3.1.0";
+const STORAGE_KEY = "GTV_v310_Data";
 
 // --- 타임존 마стер 데이터 (Extensive Mapping for Abbr) ---
 const TZ_DATABASE = [
@@ -38,6 +38,26 @@ function getLocalizedTZLabel(tzData) {
         return `${tzData.name_en} - ${tzData.city_en}`;
     }
     return `${tzData.name} - ${tzData.city}`;
+}
+
+function normalizeCustomAbbr(value) {
+    const trimmed = (value || "").trim();
+    if (!trimmed) return t("label_custom");
+    return trimmed.toUpperCase().slice(0, 12);
+}
+
+function createTimezoneListItem(tzData, closeOverlay = false) {
+    const item = document.createElement("div");
+    item.className = "tz-item";
+    item.textContent = getLocalizedTZLabel(tzData);
+    item.addEventListener("click", () => {
+        addFromSearchWithData(tzData.zone);
+        if (closeOverlay) {
+            const overlay = document.getElementById("full-tz-overlay");
+            if (overlay) overlay.style.display = "none";
+        }
+    });
+    return item;
 }
 
 // --- Group Data Structure ---
@@ -99,11 +119,13 @@ function initUI() {
 
     // Custom Zone
     document.getElementById("add-custom-btn").onclick = () => {
+        const abbr = normalizeCustomAbbr(document.getElementById("custom-abbr").value);
         const name = document.getElementById("custom-name").value.trim();
         const offH = parseInt(document.getElementById("custom-off-h").value) || 0;
         const offM = parseInt(document.getElementById("custom-off-m").value) || 0;
         if (!name) return showToast(t("toast_input_name"));
-        addTimezone({ id: "tz-c-" + Date.now(), name, offH, offM, type: "custom" });
+        addTimezone({ id: "tz-c-" + Date.now(), abbr, name, offH, offM, type: "custom" });
+        document.getElementById("custom-abbr").value = "";
         document.getElementById("custom-name").value = "";
     };
 
@@ -243,16 +265,26 @@ function renderList() {
     const effectiveSlotCount = isRealtime ? 1 : slotCount;
     const theadRow = document.querySelector("#table-head tr");
     if (theadRow) {
-        theadRow.innerHTML = `
-            <th style="width: 30px;"></th>
-            <th style="width: 180px;">${t("th_region")}</th>
+        let headHtml = `
+            <th style="width: 110px;">${t("th_tz_abbr")}</th>
+            <th style="width: 220px;">${t("th_region")}</th>
             <th style="width: 140px;">${t("th_utc_offset")}</th>
+            <th class="dynamic-col">${t("th_time_day_main")}</th>
+            <th style="width: 70px;">${t("th_copy")}</th>
+            <th style="width: 70px;">${t("th_remove")}</th>
         `;
-        // Column Reorder: Time then Day (Grouped visually) - Left Aligned
-        for (let i = 0; i < effectiveSlotCount; i++) {
-            theadRow.innerHTML += `<th class="dynamic-col">${i === 0 ? t("th_time_day_main") : t("th_time_day_extra")}</th>`;
+        if (effectiveSlotCount > 1) {
+            headHtml = `
+            <th style="width: 110px;">${t("th_tz_abbr")}</th>
+            <th style="width: 220px;">${t("th_region")}</th>
+            <th style="width: 140px;">${t("th_utc_offset")}</th>
+            <th class="dynamic-col">${t("th_time_day_main")}</th>
+            <th class="dynamic-col">${t("th_time_day_extra")}</th>
+            <th style="width: 70px;">${t("th_copy")}</th>
+            <th style="width: 70px;">${t("th_remove")}</th>
+        `;
         }
-        theadRow.innerHTML += `<th style="width: 100px;">${t("th_action")}</th>`;
+        theadRow.innerHTML = headHtml;
     }
 
     const container = document.getElementById("clocks-container");
@@ -263,8 +295,8 @@ function renderList() {
     utcTr.className = "time-row static";
     utcTr.id = "tz-row-utc";
     let utcInner = `
-        <td></td>
-        <td><div class="zone-info"><span class="zone-code">[UTC]</span><span class="zone-name">${t("utc_name")}</span></div></td>
+        <td><div class="abbr-cell"><span class="drag-spacer" aria-hidden="true"></span><span class="zone-code">UTC</span></div></td>
+        <td><div class="zone-info"><span class="zone-name">${t("utc_name")}</span></div></td>
         <td><span class="offset-text">UTC+00:00</span></td>
     `;
     for (let i = 0; i < effectiveSlotCount; i++) {
@@ -278,8 +310,11 @@ function renderList() {
             </td>
         `;
     }
-    utcInner += `<td><div class="btn-group"><button class="sm-btn" onclick="copyRow('utc')" title="${t("tooltip_copy")}">📋</button></div></td>`;
+    utcInner += `<td><div class="btn-group"><button class="sm-btn copy-row-btn" title="${t("tooltip_copy")}">📋</button></div></td>`;
+    utcInner += `<td></td>`;
     utcTr.innerHTML = utcInner;
+    const utcCopyBtn = utcTr.querySelector(".copy-row-btn");
+    if (utcCopyBtn) utcCopyBtn.addEventListener("click", () => copyRow("utc"));
     container.appendChild(utcTr);
 
     for (let i = 0; i < effectiveSlotCount; i++) {
@@ -294,11 +329,11 @@ function renderList() {
         const tr = document.createElement("tr");
         tr.className = "time-row";
         tr.id = `tz-row-${tz.id}`;
-        tr.draggable = true;
+        tr.draggable = false;
         const displayName = currentLang === "en" ? (tz.name_en || tz.name) : (tz.name_ko || tz.name);
         let inner = `
-            <td class="drag-handle">☰</td>
-            <td><div class="zone-info"><span class="zone-code"></span><span class="zone-name">${displayName}</span></div></td>
+            <td><div class="abbr-cell"><button type="button" class="drag-handle" draggable="true" title="${t("tooltip_reorder")}">☰</button><span class="zone-code"></span></div></td>
+            <td><div class="zone-info"><span class="zone-name">${displayName}</span></div></td>
             <td><span class="offset-text"></span></td>
         `;
         for (let i = 0; i < effectiveSlotCount; i++) {
@@ -313,18 +348,35 @@ function renderList() {
             `;
         }
         inner += `
-            <td><div class="btn-group"><button class="sm-btn" onclick="copyRow('${tz.id}')" title="${t("tooltip_copy")}">📋</button>
-                <button class="sm-btn danger" onclick="removeTimezone('${tz.id}')">✕</button></div></td>
+            <td><div class="btn-group"><button class="sm-btn copy-row-btn" title="${t("tooltip_copy")}">📋</button></div></td>
+            <td><div class="btn-group"><button class="sm-btn danger remove-row-btn">✕</button></div></td>
         `;
         tr.innerHTML = inner;
+        const copyBtn = tr.querySelector(".copy-row-btn");
+        if (copyBtn) copyBtn.addEventListener("click", () => copyRow(tz.id));
+        const removeBtn = tr.querySelector(".remove-row-btn");
+        if (removeBtn) removeBtn.addEventListener("click", () => removeTimezone(tz.id));
 
         tr.querySelectorAll(".time-input").forEach(inp => {
-            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", parseInt(inp.dataset.slot));
-            inp.onkeydown = (e) => { if (e.key === "Enter") { handleTimeChange(e.target.value, tz.zone || "CUSTOM", parseInt(inp.dataset.slot)); inp.blur(); } };
+            const slotIdx = parseInt(inp.dataset.slot, 10);
+            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx);
+            inp.onkeydown = (e) => { if (e.key === "Enter") { handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx); inp.blur(); } };
         });
 
-        tr.addEventListener("dragstart", () => tr.classList.add("dragging"));
-        tr.addEventListener("dragend", () => { tr.classList.remove("dragging"); saveOrder(); });
+        const dragHandle = tr.querySelector(".drag-handle");
+        if (dragHandle) {
+            dragHandle.addEventListener("dragstart", (e) => {
+                tr.classList.add("dragging");
+                if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = "move";
+                    e.dataTransfer.setData("text/plain", tz.id);
+                }
+            });
+            dragHandle.addEventListener("dragend", () => {
+                tr.classList.remove("dragging");
+                saveOrder();
+            });
+        }
         container.appendChild(tr);
     });
     updateClocks();
@@ -333,7 +385,7 @@ function renderList() {
 // --- Exact Abbr Mapping (Expanded) ---
 const ZONE_MAP = {
     "Asia/Seoul": "KST", "Asia/Tokyo": "JST", "Asia/Shanghai": "CST", "Asia/Hong_Kong": "HKT",
-    "Asia/Singapore": "SGT", "Asia/Taipei": "NST", "Asia/Bangkok": "ICT", "Asia/Dubai": "GST",
+    "Asia/Singapore": "SGT", "Asia/Taipei": "CST", "Asia/Bangkok": "ICT", "Asia/Dubai": "GST",
     "Europe/Paris": ["CET", "CEST"], "Europe/London": ["GMT", "BST"], "Europe/Berlin": ["CET", "CEST"],
     "Europe/Moscow": "MSK", "Europe/Istanbul": "TRT", "America/New_York": ["EST", "EDT"],
     "America/Chicago": ["CST", "CDT"], "America/Los_Angeles": ["PST", "PDT"], "America/Sao_Paulo": "BRT",
@@ -372,6 +424,13 @@ function getTimezoneOffset(zone, date) {
 
 function pad(v) { return String(Math.abs(v)).padStart(2, "0"); }
 
+function getCustomOffsetMinutes(tz) {
+    const offH = Number.isFinite(parseInt(tz.offH, 10)) ? parseInt(tz.offH, 10) : 0;
+    const offM = Number.isFinite(parseInt(tz.offM, 10)) ? Math.abs(parseInt(tz.offM, 10)) : 0;
+    const minuteSign = offH < 0 ? -1 : 1;
+    return (offH * 60) + (minuteSign * offM);
+}
+
 // --- Clock Logic ---
 function updateClocks() {
     updateRow("utc", { zone: "UTC", name: "표준시" });
@@ -387,8 +446,13 @@ function updateRow(id, tz) {
     let zoneCodeMain = "";
 
     if (tz.type === "custom") {
-        zoneCodeMain = t("label_custom");
-        offsetStr = `UTC${tz.offH >= 0 ? "+" : "-"}${pad(tz.offH)}:${pad(tz.offM)}`;
+        zoneCodeMain = normalizeCustomAbbr(tz.abbr);
+        const offsetMin = getCustomOffsetMinutes(tz);
+        const sign = offsetMin >= 0 ? "+" : "-";
+        const absMin = Math.abs(offsetMin);
+        const absHour = Math.floor(absMin / 60);
+        const minPart = absMin % 60;
+        offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
     } else {
         const offF = new Intl.DateTimeFormat("en-US", { timeZone: tz.zone, timeZoneName: "longOffset" });
         let partsArr = offF.formatToParts(globalTimes[0]);
@@ -406,7 +470,7 @@ function updateRow(id, tz) {
 
     const zoneCodeEl = row.querySelector(".zone-code");
     const offsetTextEl = row.querySelector(".offset-text");
-    if (zoneCodeEl) zoneCodeEl.textContent = `[${zoneCodeMain}]`;
+    if (zoneCodeEl) zoneCodeEl.textContent = zoneCodeMain;
     if (offsetTextEl) offsetTextEl.textContent = offsetStr;
 
     // Helper: updateDN inside updateRow
@@ -422,7 +486,7 @@ function updateRow(id, tz) {
         let t;
         if (tz.type === "custom") {
             const curBase = globalTimes[i];
-            const tMs = curBase.getTime() + (tz.offH * 3600000) + (tz.offM * 60000);
+            const tMs = curBase.getTime() + (getCustomOffsetMinutes(tz) * 60000);
             t = new Date(tMs);
         } else {
             const f = new Intl.DateTimeFormat("en-US", {
@@ -482,12 +546,13 @@ function handleTimeChange(val, timezone, slotIdx) {
     if (timezone === "UTC") {
         globalTimes[slotIdx] = tempUTC;
     } else if (timezone === "CUSTOM") {
-        const row = document.querySelector(".dragging") || document.activeElement.closest("tr");
+        const row = document.querySelector(".dragging") || (document.activeElement?.closest ? document.activeElement.closest("tr") : null);
+        if (!row || !row.id) return;
         const tzId = row.id.replace("tz-row-", "");
         const currentZones = groups[activeGroupId].zones;
         const tz = currentZones.find(z => z.id === tzId);
         if (tz) {
-            const offMs = (tz.offH * 3600000) + (tz.offM * 60000);
+            const offMs = getCustomOffsetMinutes(tz) * 60000;
             globalTimes[slotIdx] = new Date(tempUTC.getTime() - offMs);
         }
     } else {
@@ -533,15 +598,16 @@ function initSearchAndSelect() {
             t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v) ||
             t.name_en.toLowerCase().includes(v) || t.city_en.toLowerCase().includes(v)
         );
-        results.innerHTML = m.map(t => `<div class="tz-item" onclick="addFromSearchWithData('${t.zone}')">${getLocalizedTZLabel(t)}</div>`).join("");
+        results.innerHTML = "";
+        m.forEach(tzData => results.appendChild(createTimezoneListItem(tzData)));
         results.style.display = m.length ? "block" : "none";
     };
 
     document.getElementById("show-all-tz").onclick = () => {
         const o = document.getElementById("full-tz-overlay");
-        document.getElementById("full-tz-list").innerHTML = TZ_DATABASE.map(t =>
-            `<div class="tz-item" onclick="addFromSearchWithData('${t.zone}'); document.getElementById('full-tz-overlay').style.display='none'">${getLocalizedTZLabel(t)}</div>`
-        ).join("");
+        const list = document.getElementById("full-tz-list");
+        list.innerHTML = "";
+        TZ_DATABASE.forEach(tzData => list.appendChild(createTimezoneListItem(tzData, true)));
         o.style.display = "flex";
     };
     document.getElementById("close-overlay").onclick = () => document.getElementById("full-tz-overlay").style.display = "none";
@@ -573,7 +639,8 @@ function getAfter(c, y) { const drs = [...c.querySelectorAll(".time-row:not(.dra
 function saveOrder() { const ids = [...document.querySelectorAll(".time-row:not(.static)")].map(r => r.id.replace("tz-row-", "")); groups[activeGroupId].zones.sort((a, b) => ids.indexOf(a.id) - ids.indexOf(b.id)); savePersistence(); }
 
 function getRowCopyText(row) {
-    const zoneCode = (row.querySelector(".zone-code")?.textContent || "[UTC]").trim();
+    const zoneCodeRaw = (row.querySelector(".zone-code")?.textContent || "UTC").trim();
+    const zoneCode = zoneCodeRaw.startsWith("[") ? zoneCodeRaw : `[${zoneCodeRaw}]`;
     const offsetText = (row.querySelector(".offset-text")?.textContent || "[UTC+00:00]").trim();
     const offWrapped = offsetText.startsWith("[") ? offsetText : `[${offsetText}]`;
 
@@ -588,7 +655,7 @@ async function copyRow(id) {
     const row = document.getElementById(`tz-row-${id}`);
     if (!row) return;
     await navigator.clipboard.writeText(getRowCopyText(row));
-    showToast("복사되었습니다.");
+    showToast(t("toast_copy_success"));
 }
 
 async function copyAllTimezones() {
@@ -602,6 +669,14 @@ function initCalculators() {
     const pS = document.getElementById("period-start"); const pE = document.getElementById("period-end");
     const oS = document.getElementById("offset-start"); const oV = document.getElementById("off-val"); const oU = document.getElementById("off-unit");
     const btnPlus = document.getElementById("off-plus"); const btnMinus = document.getElementById("off-minus");
+    const copyBindings = [
+        ["copy-conv-day-btn", "conv-day", true],
+        ["copy-conv-hour-btn", "conv-hour", true],
+        ["copy-conv-min-btn", "conv-min", true],
+        ["copy-conv-sec-btn", "conv-sec", true],
+        ["copy-period-res-btn", "period-res", false],
+        ["copy-offset-res-btn", "offset-res", false]
+    ];
 
     pS.valueAsDate = pE.valueAsDate = oS.valueAsDate = new Date();
 
@@ -619,6 +694,10 @@ function initCalculators() {
     [pS, pE, oS, oV, oU].forEach(el => el.onchange = calc);
     if (btnPlus) btnPlus.onclick = () => { oV.value = (parseInt(oV.value) || 0) + 1; calc(); };
     if (btnMinus) btnMinus.onclick = () => { oV.value = (parseInt(oV.value) || 0) - 1; calc(); };
+    copyBindings.forEach(([btnId, targetId, isInput]) => {
+        const btn = document.getElementById(btnId);
+        if (btn) btn.addEventListener("click", () => copyText(targetId, isInput));
+    });
     calc();
     initConverter();
 }
@@ -659,12 +738,87 @@ async function copyText(elementId, isInput = false) {
     const text = (isInput ? el.value : (el.textContent || "")).trim();
     if (!text) return;
     await navigator.clipboard.writeText(text);
-    showToast(t("toast_copy_all_success"));
+    showToast(t("toast_copy_success"));
 }
 
 function savePersistence() { localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, activeGroupId, slotCount })); }
+
+function getDefaultGroups() {
+    return [{ name: t("default_group_name"), zones: [{ id: "seoul", name_ko: "대한민국 - 서울", name_en: "South Korea - Seoul", zone: "Asia/Seoul", type: "standard" }] }];
+}
+
+function sanitizeTimezoneZone(zone) {
+    if (!zone || typeof zone !== "object") return null;
+    const id = (typeof zone.id === "string" && zone.id.trim()) ? zone.id : null;
+    if (!id) return null;
+
+    if (zone.type === "custom") {
+        const offH = parseInt(zone.offH, 10);
+        const offM = parseInt(zone.offM, 10);
+        return {
+            id,
+            type: "custom",
+            abbr: normalizeCustomAbbr(zone.abbr),
+            name: (typeof zone.name === "string" && zone.name.trim()) ? zone.name.trim() : t("label_custom"),
+            offH: Number.isFinite(offH) ? Math.max(-14, Math.min(14, offH)) : 0,
+            offM: Number.isFinite(offM) ? Math.max(0, Math.min(59, Math.abs(offM))) : 0
+        };
+    }
+
+    const timeZoneName = (typeof zone.zone === "string" && zone.zone.trim()) ? zone.zone : null;
+    if (!timeZoneName) return null;
+    const fallbackName = (typeof zone.name === "string" && zone.name.trim()) ? zone.name.trim() : timeZoneName;
+    return {
+        id,
+        type: "standard",
+        zone: timeZoneName,
+        name_ko: (typeof zone.name_ko === "string" && zone.name_ko.trim()) ? zone.name_ko : fallbackName,
+        name_en: (typeof zone.name_en === "string" && zone.name_en.trim()) ? zone.name_en : fallbackName
+    };
+}
+
+function sanitizeGroup(group, idx) {
+    if (!group || typeof group !== "object") return null;
+    const zones = Array.isArray(group.zones) ? group.zones.map(sanitizeTimezoneZone).filter(Boolean) : [];
+    const name = (typeof group.name === "string" && group.name.trim()) ? group.name.trim() : `${t("default_group_name")} ${idx + 1}`;
+    return { name, zones };
+}
+
 function loadPersistence() {
-    const s = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("GTV_v200_Data") || localStorage.getItem("GTV_v170_Data") || localStorage.getItem("GTV_v160_Data") || localStorage.getItem("GTV_v150_Data") || localStorage.getItem("GTV_v140_Data");
-    if (s) { const d = JSON.parse(s); groups = d.groups; activeGroupId = d.activeGroupId || 0; slotCount = Math.min(2, Math.max(1, d.slotCount || 1)); }
-    else groups = [{ name: t("default_group_name"), zones: [{ id: "seoul", name_ko: "대한민국 - 서울", name_en: "South Korea - Seoul", zone: "Asia/Seoul", type: "standard" }] }];
+    const legacyKeys = ["GTV_v300_Data", "GTV_v200_Data", "GTV_v170_Data", "GTV_v160_Data", "GTV_v150_Data", "GTV_v140_Data"];
+    let s = localStorage.getItem(STORAGE_KEY);
+    if (!s) {
+        for (const key of legacyKeys) {
+            const legacy = localStorage.getItem(key);
+            if (legacy) {
+                s = legacy;
+                break;
+            }
+        }
+    }
+
+    if (!s) {
+        groups = getDefaultGroups();
+        activeGroupId = 0;
+        slotCount = 1;
+        return;
+    }
+
+    try {
+        const d = JSON.parse(s);
+        const parsedGroups = Array.isArray(d?.groups) ? d.groups.map(sanitizeGroup).filter(Boolean) : [];
+        groups = parsedGroups.length ? parsedGroups : getDefaultGroups();
+
+        const parsedActiveGroupId = parseInt(d?.activeGroupId, 10);
+        activeGroupId = Number.isFinite(parsedActiveGroupId) ? Math.min(Math.max(parsedActiveGroupId, 0), groups.length - 1) : 0;
+
+        const parsedSlotCount = parseInt(d?.slotCount, 10);
+        slotCount = Math.min(2, Math.max(1, Number.isFinite(parsedSlotCount) ? parsedSlotCount : 1));
+    } catch (err) {
+        console.warn("Failed to parse persisted data. Falling back to defaults.", err);
+        groups = getDefaultGroups();
+        activeGroupId = 0;
+        slotCount = 1;
+        savePersistence();
+    }
 }

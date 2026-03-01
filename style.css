@@ -374,6 +374,45 @@ input[type=number] {
     /* Tighter gap */
 }
 
+.abbr-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.drag-handle,
+.drag-spacer {
+    width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.drag-handle {
+    border: 1px solid transparent;
+    border-radius: 3px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: grab;
+    line-height: 1;
+    padding: 0;
+}
+
+.drag-handle:active {
+    cursor: grabbing;
+}
+
+.drag-handle:hover {
+    color: var(--accent);
+    border-color: var(--border);
+    background: rgba(56, 189, 248, 0.1);
+}
+
+.dragging {
+    opacity: 0.55;
+}
+
 .zone-code {
     font-family: 'JetBrains Mono', monospace;
     font-size: 13px;
@@ -399,6 +438,14 @@ input[type=number] {
     background: transparent;
     border-color: transparent;
     color: var(--text);
+}
+
+.time-input:disabled {
+    background: transparent;
+    border-color: transparent;
+    color: var(--text-dim);
+    opacity: 0.75;
+    cursor: not-allowed;
 }
 
 .time-day-group {
