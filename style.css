@@ -8,6 +8,9 @@
     --text: #f1f5f9;
     --text-dim: #94a3b8;
     --border: rgba(255, 255, 255, 0.1);
+    --table-head-bg: #1e293b;
+    --select-option-bg: #1e293b;
+    --select-option-text: #f1f5f9;
     --danger: #ef4444;
     --success: #22c55e;
 
@@ -16,6 +19,23 @@
     --base-font: calc(17px * var(--ui-scale));
     --row-pad: calc(7px * var(--ui-scale));
     --input-w: calc(240px * var(--ui-scale));
+}
+
+:root[data-theme="light"] {
+    --bg: #f1f5f9;
+    --panel-bg: rgba(255, 255, 255, 0.88);
+    --card-bg: rgba(255, 255, 255, 0.92);
+    --input-bg: rgba(15, 23, 42, 0.05);
+    --accent: #0284c7;
+    --accent-glow: rgba(2, 132, 199, 0.2);
+    --text: #0f172a;
+    --text-dim: #475569;
+    --border: rgba(15, 23, 42, 0.14);
+    --table-head-bg: #e2e8f0;
+    --select-option-bg: #ffffff;
+    --select-option-text: #0f172a;
+    --danger: #dc2626;
+    --success: #16a34a;
 }
 
 * {
@@ -34,6 +54,12 @@ body {
     background-image:
         radial-gradient(circle at 20% 30%, rgba(56, 189, 248, 0.05) 0%, transparent 40%),
         radial-gradient(circle at 80% 70%, rgba(129, 140, 248, 0.05) 0%, transparent 40%);
+}
+
+:root[data-theme="light"] body {
+    background-image:
+        radial-gradient(circle at 18% 25%, rgba(2, 132, 199, 0.08) 0%, transparent 42%),
+        radial-gradient(circle at 82% 72%, rgba(56, 189, 248, 0.08) 0%, transparent 44%);
 }
 
 .app-layout {
@@ -72,7 +98,7 @@ body {
 }
 
 .version-badge {
-    font-size: 11px;
+    font-size: 16px;
     color: var(--text-dim);
     opacity: 0.6;
 }
@@ -123,9 +149,18 @@ body {
     color: var(--text);
     padding: 7px 12px;
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 16px;
     outline: none;
     transition: all 0.2s;
+}
+
+.sm-btn,
+.icon-btn {
+    white-space: nowrap;
+    line-height: 1.2;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .sm-btn:hover,
@@ -134,6 +169,15 @@ body {
     background: var(--accent-glow);
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.form-select {
+    padding-right: 34px;
+}
+
+.sidebar-select {
+    height: 36px;
+    line-height: 1.2;
 }
 
 .form-input:focus,
@@ -162,8 +206,27 @@ input[type=number] {
 
 /* Custom Select Dropdown Style */
 .form-select option {
-    background-color: #1e293b;
-    color: var(--text);
+    background-color: var(--select-option-bg);
+    color: var(--select-option-text);
+    padding-right: 14px;
+}
+
+.search-dropdown {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    max-height: 260px;
+    overflow-y: auto;
+    backdrop-filter: blur(6px);
+}
+
+#search-results .tz-item {
+    border-radius: 0;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+}
+
+#search-results .tz-item:last-child {
+    border-bottom: none;
 }
 
 /* Main Content Wrapper */
@@ -181,12 +244,34 @@ input[type=number] {
     display: flex;
     flex-wrap: wrap;
     gap: 15px;
-    align-items: center;
+    align-items: stretch;
     background: var(--panel-bg);
     padding: 15px;
     border-radius: 8px;
     margin-bottom: 20px;
     border: 1px solid var(--border);
+}
+
+.control-row {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+}
+
+.control-row-options {
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+}
+
+.control-row-options .option-toggle-group {
+    padding-right: 14px;
+    margin-right: 2px;
+}
+
+.control-row-options .option-toggle-group:not(:last-of-type) {
+    border-right: 1px solid var(--border);
 }
 
 .control-group {
@@ -202,7 +287,7 @@ input[type=number] {
 }
 
 .control-label {
-    font-size: 13px;
+    font-size: 16px;
     color: var(--accent);
     font-weight: 700;
     text-transform: uppercase;
@@ -213,6 +298,122 @@ input[type=number] {
     /* Increased from 13*/
     color: var(--accent);
     font-weight: 700;
+}
+
+.control-bar.time-adjust-enabled {
+    min-height: 130px;
+}
+
+.time-adjust-row {
+    width: 100%;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    margin-top: -2px;
+}
+
+.time-adjust-buttons {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.copy-format-row {
+    width: 100%;
+    border-top: 1px solid var(--border);
+    padding-top: 10px;
+    margin-top: -2px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.copy-format-list {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 2px;
+}
+
+.copy-format-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.03);
+    white-space: nowrap;
+}
+
+.copy-format-item.dragging {
+    opacity: 0.55;
+}
+
+.copy-format-item-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 16px;
+    color: var(--text);
+    cursor: pointer;
+}
+
+.copy-format-drag {
+    border: 1px solid transparent;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--text-dim);
+    cursor: grab;
+    padding: 1px 4px;
+    user-select: none;
+}
+
+.copy-format-drag:hover {
+    color: var(--accent);
+    border-color: var(--border);
+    background: rgba(56, 189, 248, 0.1);
+}
+
+.time-adjust-set {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.time-adjust-set .sm-btn {
+    margin-left: 2px;
+    margin-right: 2px;
+}
+
+.time-adjust-divider {
+    color: var(--text-dim);
+    font-weight: 700;
+    opacity: 0.9;
+    user-select: none;
+    padding: 0 2px;
+}
+
+.time-adjust-set-label {
+    flex: 0 0 200px;
+    width: 200px;
+    min-width: 200px;
+    font-size: 16px;
+    color: var(--text-dim);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.time-adjust-sync-btn {
+    width: auto;
+    min-width: 200px;
+    padding-left: 12px;
+    padding-right: 12px;
+    text-align: center;
+    white-space: nowrap;
 }
 
 .label-large {
@@ -237,7 +438,7 @@ input[type=number] {
     background: rgba(255, 255, 255, 0.03);
     border: 1px solid var(--border);
     border-radius: 4px;
-    font-size: 14px;
+    font-size: 16px;
     cursor: pointer;
     color: var(--text-dim);
     white-space: nowrap;
@@ -260,7 +461,7 @@ input[type=number] {
     background: none;
     border: none;
     color: inherit;
-    font-size: 14px;
+    font-size: 16px;
     line-height: 1;
     cursor: pointer;
     padding: 2px;
@@ -309,19 +510,25 @@ input[type=number] {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: #1e293b;
-    text-align: left;
+    background: var(--table-head-bg);
+    text-align: center;
     color: var(--text-dim);
     padding: 10px 10px;
     /* Dense padding */
-    font-size: 13px;
+    font-size: 16px;
     text-transform: uppercase;
     border-bottom: 2px solid var(--border);
+    white-space: nowrap;
 }
 
 .data-table th:last-child {
-    text-align: left;
-    /* Aligned to left */
+    text-align: center;
+}
+
+/* Vertical dividers between table columns for readability */
+.data-table th:not(:last-child),
+.time-row td:not(:last-child) {
+    border-right: 1px solid rgba(148, 163, 184, 0.22);
 }
 
 .time-row {
@@ -415,7 +622,7 @@ input[type=number] {
 
 .zone-code {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 13px;
+    font-size: 16px;
     color: var(--accent);
     background: rgba(56, 189, 248, 0.1);
     padding: 4px 8px;
@@ -456,7 +663,7 @@ input[type=number] {
 }
 
 .dn-icon {
-    font-size: 14px;
+    font-size: 16px;
     min-width: 20px;
     text-align: center;
     user-select: none;
@@ -465,7 +672,7 @@ input[type=number] {
 .day-badge {
     padding: 2px 8px;
     border-radius: 4px;
-    font-size: 11px;
+    font-size: 16px;
     font-weight: 700;
     background: rgba(255, 255, 255, 0.05);
     border: 1px solid var(--border);
@@ -481,6 +688,48 @@ input[type=number] {
 .day-sat {
     color: #60a5fa;
     background: rgba(56, 189, 248, 0.1);
+}
+
+.period-days-cell {
+    min-width: 90px;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    text-align: center;
+}
+
+.time-row td.period-days-cell {
+    text-align: center !important;
+}
+
+.period-days-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.period-time-cell {
+    min-width: 100px;
+    padding-left: 2px !important;
+    padding-right: 2px !important;
+    text-align: center;
+}
+
+.time-row td.period-time-cell {
+    text-align: center !important;
+}
+
+.period-time-text {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.offset-text {
+    display: inline-block;
+    width: 100%;
+    text-align: center;
 }
 
 /* Action Buttons Container */
@@ -523,7 +772,7 @@ input[type=number] {
 .form-group label {
     width: 100px;
     color: var(--text-dim);
-    font-size: 14px;
+    font-size: 16px;
 }
 
 /* Converter Styling - Vertical List */
@@ -543,7 +792,7 @@ input[type=number] {
 .conv-row label {
     flex: 0 0 100px;
     color: var(--text-dim);
-    font-size: 14px;
+    font-size: 16px;
 }
 
 .conv-input-group {
@@ -567,11 +816,40 @@ input[type=number] {
     align-items: center;
 }
 
+.calc-result-stack {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.calc-result-stack .calc-result-box {
+    margin-top: 0;
+}
+
+.calc-result-box-compact {
+    padding: 12px 16px;
+}
+
 .result-val {
     font-size: 1.4rem;
     font-weight: 700;
     color: var(--accent);
     font-family: 'JetBrains Mono', monospace;
+}
+
+.result-val-compact {
+    font-size: 1.2rem;
+}
+
+.result-val-date {
+    font-size: 1.15rem;
+}
+
+.calc-result-label {
+    font-size: 16px;
+    color: var(--text-dim);
+    font-weight: 600;
 }
 
 /* Date Input Calendar Icon Visibility */
@@ -588,7 +866,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .widget-title {
-    font-size: 11px;
+    font-size: 16px;
     color: var(--text-dim);
     margin-bottom: 5px;
 }
@@ -613,7 +891,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 #scale-val {
-    font-size: 14px;
+    font-size: 16px;
 }
 
 /* Overlays */
@@ -660,7 +938,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: rgba(255, 255, 255, 0.03);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
+    font-size: 16px;
     transition: all 0.2s;
 }
 
@@ -676,6 +954,10 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     overflow-y: auto;
     padding-right: 5px;
     /* Scrollbar space */
+}
+
+#timezone-section.tab-content {
+    overflow: auto;
 }
 
 .tab-content.active {
@@ -713,7 +995,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     color: white;
     padding: 12px 24px;
     border-radius: 50px;
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 500;
     backdrop-filter: blur(8px);
     border: 1px solid var(--accent);

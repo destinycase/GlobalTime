@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Time v3.1.0</title>
-    <link rel="stylesheet" href="style.css?v=310">
-    <script src="i18n.js?v=310"></script>
+    <title>Global Time v3.2.0</title>
+    <link rel="stylesheet" href="style.css?v=320">
+    <script src="i18n.js?v=320"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -22,7 +22,7 @@
                 <span class="logo-icon">🌐</span>
                 <div class="logo-text">
                     <h1>Global Time</h1>
-                    <span class="version-badge" id="version-badge">ver 3.1.0</span>
+                    <span class="version-badge" id="version-badge">ver 3.2.0</span>
                 </div>
             </div>
 
@@ -33,17 +33,16 @@
             </nav>
 
             <div class="sidebar-footer">
-                <!-- App Status Label -->
-                <div id="app-status" style="margin-top: 15px; display: flex; align-items: center; gap: 8px;">
-                    <span class="status-badge" style="background: none; padding:0;">
-                        <span class="pulse" style="width: 6px; height: 6px;"></span>
-                    </span>
-                    <span id="status-text" style="font-size: 9px; color: var(--text-dim);" data-i18n="status_sync">동기화
-                        중</span>
+                <!-- Theme Selector -->
+                <div style="padding: 0 10px;">
+                    <select id="theme-select" class="form-select sidebar-select" style="width: 100%;">
+                        <option value="dark" data-i18n="theme_dark">다크</option>
+                        <option value="light" data-i18n="theme_light">라이트</option>
+                    </select>
                 </div>
                 <!-- Language Selector -->
-                <div style="margin-top: 20px; padding: 0 10px;">
-                    <select id="lang-select" class="form-select" style="width: 100%; font-size: 11px; height: 30px;">
+                <div style="margin-top: 10px; padding: 0 10px;">
+                    <select id="lang-select" class="form-select sidebar-select" style="width: 100%;">
                         <option value="ko">한국어 (KO)</option>
                         <option value="en">English (EN)</option>
                     </select>
@@ -61,50 +60,86 @@
 
             <!-- Global Control Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
             <div id="top-control-bar" class="control-bar">
-                <div class="control-group">
-                    <span class="control-label-large" data-i18n="label_add_tz">타임존 추가</span>
-                    <div style="position: relative;">
-                        <input type="text" id="tz-search-input" class="form-input" placeholder="도시 검색..."
-                            style="width: 120px;" data-i18n="placeholder_search">
-                        <div id="search-results" class="overlay"
-                            style="position: absolute; top:100%; left:0; right:0; display:none; background: #1e293b; z-index: 100;">
+                <div class="control-row control-row-main">
+                    <div class="control-group">
+                        <span class="control-label-large" data-i18n="label_add_tz">타임존 추가</span>
+                        <div style="position: relative;">
+                            <input type="text" id="tz-search-input" class="form-input" placeholder="도시 검색..."
+                                style="width: 120px;" data-i18n="placeholder_search">
+                            <div id="search-results" class="search-dropdown"
+                                style="position: absolute; top:100%; left:0; right:0; display:none; background: var(--panel-bg); z-index: 100;">
+                            </div>
                         </div>
+                        <select id="tz-quick-select" class="form-select" style="width: 130px;">
+                            <option value="" data-i18n="option_popular">인기 도시 선택...</option>
+                        </select>
+                        <button id="show-all-tz" class="icon-btn" data-i18n="btn_list">목록</button>
                     </div>
-                    <select id="tz-quick-select" class="form-select" style="width: 130px;">
-                        <option value="" data-i18n="option_popular">인기 도시 선택...</option>
-                    </select>
-                    <button id="show-all-tz" class="icon-btn" data-i18n="btn_list">📑 목록</button>
+
+                    <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                        <span class="control-label-large" data-i18n="label_add_custom">커스텀 추가</span>
+                        <input type="text" id="custom-abbr" class="form-input" placeholder="약어" style="width: 70px;"
+                            data-i18n="placeholder_abbr">
+                        <input type="text" id="custom-name" class="form-input" placeholder="이름" style="width: 80px;"
+                            data-i18n="placeholder_name">
+                        <select id="custom-off-h" class="form-select" style="width: 132px;"></select>
+                        <span style="font-size:16px;">:</span>
+                        <select id="custom-off-m" class="form-select" style="width: 108px;">
+                            <option value="0">00</option>
+                            <option value="15">15</option>
+                            <option value="30">30</option>
+                            <option value="45">45</option>
+                        </select>
+                        <button id="add-custom-btn" class="sm-btn" data-i18n="btn_add">추가</button>
+                    </div>
+
+                    <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                        <span class="control-label-large" data-i18n="label_base_time">기준 시간</span>
+                        <select id="base-time-select" class="form-select" style="width: 220px;"></select>
+                    </div>
+
                 </div>
 
-                <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
-                    <span class="control-label-large" data-i18n="label_add_custom">커스텀 추가</span>
-                    <input type="text" id="custom-abbr" class="form-input" placeholder="약어" style="width: 70px;"
-                        data-i18n="placeholder_abbr">
-                    <input type="text" id="custom-name" class="form-input" placeholder="이름" style="width: 80px;"
-                        data-i18n="placeholder_name">
-                    <select id="custom-off-h" class="form-select" style="width: 80px;"></select>
-                    <span style="font-size:12px;">:</span>
-                    <select id="custom-off-m" class="form-select" style="width: 70px;">
-                        <option value="0">00</option>
-                        <option value="15">15</option>
-                        <option value="30">30</option>
-                        <option value="45">45</option>
-                    </select>
-                    <button id="add-custom-btn" class="sm-btn" data-i18n="btn_add">추가</button>
+                <div id="control-option-row" class="control-row control-row-options">
+                    <div class="control-group option-toggle-group">
+                        <label class="control-label-large"
+                            style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <span data-i18n="label_time_adjust">시간 수정(기준 시간 기준)</span>
+                            <input type="checkbox" id="toggle-time-adjust">
+                        </label>
+                    </div>
+
+                    <div class="control-group option-toggle-group">
+                        <label class="control-label-large"
+                            style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <span data-i18n="label_extra_time">추가 시간 표시</span>
+                            <input type="checkbox" id="toggle-extra-time">
+                        </label>
+                    </div>
+
+                    <div class="control-group option-toggle-group">
+                        <label class="control-label-large"
+                            style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <span data-i18n="label_copy_format">표기 및 복사 방식</span>
+                            <input type="checkbox" id="toggle-copy-format">
+                        </label>
+                    </div>
+
+                    <div class="control-group" style="margin-left: auto;">
+                        <button id="save-table-image-btn" class="sm-btn" data-i18n="btn_save_table_image">🖼️ 이미지 저장</button>
+                        <button id="copy-all-btn" class="sm-btn"
+                            style="background: var(--accent-glow); color: var(--accent);" title="전체 복사"
+                            data-i18n="btn_copy_all">📋 전체 복사</button>
+                    </div>
                 </div>
 
-                <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
-                    <label class="control-label-large"
-                        style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                        <span data-i18n="label_extra_time">추가 시간 표시</span>
-                        <input type="checkbox" id="toggle-extra-time">
-                    </label>
+                <div id="time-adjust-row" class="time-adjust-row" style="display: none;">
+                    <div id="time-adjust-buttons" class="time-adjust-buttons"></div>
                 </div>
 
-                <div class="control-group" style="margin-left: auto;">
-                    <button id="copy-all-btn" class="sm-btn"
-                        style="background: var(--accent-glow); color: var(--accent);" title="전체 복사"
-                        data-i18n="btn_copy_all">📋 전체 복사</button>
+                <div id="copy-format-row" class="copy-format-row" style="display: none;">
+                    <div id="copy-format-list" class="copy-format-list"></div>
+                    <button id="copy-format-reset-btn" class="sm-btn" data-i18n="btn_reset">초기화</button>
                 </div>
             </div>
 
@@ -113,11 +148,11 @@
                 <table class="data-table">
                     <thead id="table-head">
                         <tr>
-                            <th style="width: 110px;" data-i18n="th_tz_abbr">시간대 약어</th>
-                            <th style="width: 180px;" data-i18n="th_region">지역 / 국가</th>
+                            <th style="width: 110px;" data-i18n="th_tz_abbr">시간대</th>
+                            <th style="width: 180px;" data-i18n="th_region">국가 - 지역</th>
                             <th style="width: 110px;" data-i18n="th_utc_offset">UTC Offset</th>
                             <!-- Day/Time columns dynamic -->
-                            <th class="dynamic-col" data-i18n="th_time_day_main">시간 / 요일</th>
+                            <th class="dynamic-col" data-i18n="th_time_day_main">시간</th>
                             <th style="width: 70px;" data-i18n="th_copy">복사</th>
                             <th style="width: 70px;" data-i18n="th_remove">제거</th>
                         </tr>
@@ -128,7 +163,7 @@
                             <td><span class="zone-code">UTC</span></td>
                             <td>
                                 <div class="zone-info">
-                                    <span class="zone-name" data-i18n="utc_name">표준시 (기준)</span>
+                                    <span class="zone-name" data-i18n="utc_name">표준시</span>
                                 </div>
                             </td>
                             <td><span class="offset-text">UTC+0</span></td>
@@ -187,13 +222,39 @@
                                     id="period-start" class="form-input"></div>
                             <div class="form-group"><label data-i18n="calc_label_end">종료일</label><input type="date"
                                     id="period-end" class="form-input"></div>
-                            <div class="calc-result-box">
-                                <div>
-                                    <div style="font-size: 9px; color: var(--text-dim);"
-                                        data-i18n="calc_label_total_days">총 일수</div><span class="result-val"
-                                        id="period-res">0 일</span>
+                            <div class="calc-result-stack">
+                                <div class="calc-result-box">
+                                    <div>
+                                        <div class="calc-result-label"
+                                            data-i18n="calc_label_total_days">총 일수</div><span class="result-val result-val-compact"
+                                            id="period-res">0 일</span>
+                                    </div>
+                                    <button class="sm-btn" id="copy-period-res-btn" title="복사">📋</button>
                                 </div>
-                                <button class="sm-btn" id="copy-period-res-btn" title="복사">📋</button>
+                                <div class="calc-result-box calc-result-box-compact">
+                                    <div>
+                                        <div class="calc-result-label"
+                                            data-i18n="calc_label_total_hours">총 시간</div><span
+                                            class="result-val result-val-compact" id="period-hour-res">0 시간</span>
+                                    </div>
+                                    <button class="sm-btn" id="copy-period-hour-res-btn" title="복사">📋</button>
+                                </div>
+                                <div class="calc-result-box calc-result-box-compact">
+                                    <div>
+                                        <div class="calc-result-label"
+                                            data-i18n="calc_label_total_minutes">총 분</div><span
+                                            class="result-val result-val-compact" id="period-min-res">0 분</span>
+                                    </div>
+                                    <button class="sm-btn" id="copy-period-min-res-btn" title="복사">📋</button>
+                                </div>
+                                <div class="calc-result-box calc-result-box-compact">
+                                    <div>
+                                        <div class="calc-result-label"
+                                            data-i18n="calc_label_total_seconds">총 초</div><span
+                                            class="result-val result-val-compact" id="period-sec-res">0 초</span>
+                                    </div>
+                                    <button class="sm-btn" id="copy-period-sec-res-btn" title="복사">📋</button>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -214,8 +275,8 @@
                             </div>
                             <div class="calc-result-box">
                                 <div>
-                                    <div style="font-size: 9px; color: var(--text-dim);" data-i18n="calc_label_result">
-                                        결과 날짜</div><span class="result-val" id="offset-res">-</span>
+                                    <div class="calc-result-label" data-i18n="calc_label_result">
+                                        결과 날짜</div><span class="result-val result-val-date" id="offset-res">-</span>
                                 </div>
                                 <button class="sm-btn" id="copy-offset-res-btn" title="복사">📋</button>
                             </div>
@@ -239,7 +300,7 @@
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
 
-    <script src="main.js?v=310"></script>
+    <script src="main.js?v=320"></script>
 </body>
 
 </html>
