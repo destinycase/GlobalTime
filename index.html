@@ -1,12 +1,12 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ko">
 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Time v3.2.0</title>
-    <link rel="stylesheet" href="style.css?v=320">
-    <script src="i18n.js?v=320"></script>
+    <title>Global Time v3.2.3</title>
+    <link rel="stylesheet" href="style.css?v=325">
+    <script src="i18n.js?v=325"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -19,17 +19,17 @@
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
-                <span class="logo-icon">🌐</span>
+                <span class="logo-icon">🌍</span>
                 <div class="logo-text">
                     <h1>Global Time</h1>
-                    <span class="version-badge" id="version-badge">ver 3.2.0</span>
+                    <span class="version-badge" id="version-badge">ver 3.2.3</span>
                 </div>
             </div>
 
             <nav class="nav-menu">
-                <button class="nav-item active" data-tab="live" data-i18n="nav_live">⏱️ 실시간 시간</button>
-                <button class="nav-item" data-tab="fixed" data-i18n="nav_fixed">📍 고정 시간</button>
-                <button class="nav-item" data-tab="calc" data-i18n="nav_calc">📅 계산기 도구</button>
+                <button class="nav-item active" data-tab="live" data-i18n="nav_live">실시간 시간</button>
+                <button class="nav-item" data-tab="fixed" data-i18n="nav_fixed">고정 시간</button>
+                <button class="nav-item" data-tab="calc" data-i18n="nav_calc">계산기 도구</button>
             </nav>
 
             <div class="sidebar-footer">
@@ -47,38 +47,34 @@
                         <option value="en">English (EN)</option>
                     </select>
                 </div>
+                <div style="margin-top: 10px; padding: 0 10px;">
+                    <button id="reset-all-settings-btn" class="sm-btn" style="width: 100%;" data-i18n="btn_reset_all_settings">모든 설정 초기화</button>
+                </div>
             </div>
         </aside>
 
         <!-- Main Dashboard -->
         <main class="main-content">
-            <!-- Group Tabs Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
+            <!-- Group Tabs Bar (실시간/고정 시간에서만 표시, 계산기에서는 숨김) -->
             <div id="group-tabs-container" class="group-tabs">
                 <!-- Tabs rendered by JS -->
-                <button class="sm-btn" id="add-group-btn" title="새 그룹 추가">＋</button>
+                <button class="sm-btn" id="add-group-btn" title="새 그룹 추가">+</button>
             </div>
 
-            <!-- Global Control Bar (시간대 탭에서만 표시, 계산기 탭에서는 숨김) -->
+            <!-- Global Control Bar (실시간/고정 시간에서만 표시, 계산기에서는 숨김) -->
             <div id="top-control-bar" class="control-bar">
                 <div class="control-row control-row-main">
                     <div class="control-group">
                         <span class="control-label-large" data-i18n="label_add_tz">타임존 추가</span>
-                        <div style="position: relative;">
-                            <input type="text" id="tz-search-input" class="form-input" placeholder="도시 검색..."
-                                style="width: 120px;" data-i18n="placeholder_search">
-                            <div id="search-results" class="search-dropdown"
-                                style="position: absolute; top:100%; left:0; right:0; display:none; background: var(--panel-bg); z-index: 100;">
-                            </div>
-                        </div>
                         <select id="tz-quick-select" class="form-select" style="width: 130px;">
                             <option value="" data-i18n="option_popular">인기 도시 선택...</option>
                         </select>
                         <button id="show-all-tz" class="icon-btn" data-i18n="btn_list">목록</button>
                     </div>
 
-                    <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                    <div class="control-group control-group-divider">
                         <span class="control-label-large" data-i18n="label_add_custom">커스텀 추가</span>
-                        <input type="text" id="custom-abbr" class="form-input" placeholder="약어" style="width: 70px;"
+                        <input type="text" id="custom-abbr" class="form-input" placeholder="시간대" style="width: 70px;"
                             data-i18n="placeholder_abbr">
                         <input type="text" id="custom-name" class="form-input" placeholder="이름" style="width: 80px;"
                             data-i18n="placeholder_name">
@@ -93,7 +89,7 @@
                         <button id="add-custom-btn" class="sm-btn" data-i18n="btn_add">추가</button>
                     </div>
 
-                    <div class="control-group" style="padding-left: 10px; border-left: 1px solid var(--border);">
+                    <div class="control-group control-group-divider">
                         <span class="control-label-large" data-i18n="label_base_time">기준 시간</span>
                         <select id="base-time-select" class="form-select" style="width: 220px;"></select>
                     </div>
@@ -104,8 +100,16 @@
                     <div class="control-group option-toggle-group">
                         <label class="control-label-large"
                             style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <span data-i18n="label_time_adjust">시간 수정(기준 시간 기준)</span>
+                            <span data-i18n="label_time_adjust">시간 수정(기준 시간)</span>
                             <input type="checkbox" id="toggle-time-adjust">
+                        </label>
+                    </div>
+
+                    <div class="control-group option-toggle-group">
+                        <label class="control-label-large"
+                            style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                            <span data-i18n="label_ignore_dst">DST 무시</span>
+                            <input type="checkbox" id="toggle-ignore-dst">
                         </label>
                     </div>
 
@@ -120,15 +124,16 @@
                     <div class="control-group option-toggle-group">
                         <label class="control-label-large"
                             style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                            <span data-i18n="label_copy_format">표기 및 복사 방식</span>
+                            <span data-i18n="label_copy_format">표기/복사 양식</span>
                             <input type="checkbox" id="toggle-copy-format">
                         </label>
                     </div>
 
                     <div class="control-group" style="margin-left: auto;">
+                        <button id="export-settings-btn" class="sm-btn" data-i18n="btn_export_settings">설정 내보내기</button>
+                        <button id="import-settings-btn" class="sm-btn" data-i18n="btn_import_settings">설정 가져오기</button>
                         <button id="save-table-image-btn" class="sm-btn" data-i18n="btn_save_table_image">🖼️ 이미지 저장</button>
-                        <button id="copy-all-btn" class="sm-btn"
-                            style="background: var(--accent-glow); color: var(--accent);" title="전체 복사"
+                        <button id="copy-all-btn" class="sm-btn" title="전체 복사"
                             data-i18n="btn_copy_all">📋 전체 복사</button>
                     </div>
                 </div>
@@ -138,9 +143,18 @@
                 </div>
 
                 <div id="copy-format-row" class="copy-format-row" style="display: none;">
-                    <div id="copy-format-list" class="copy-format-list"></div>
-                    <button id="copy-format-reset-btn" class="sm-btn" data-i18n="btn_reset">초기화</button>
+                    <div class="copy-format-line">
+                        <span class="copy-format-title" data-i18n="label_display_format_row">표기 양식</span>
+                        <div id="display-format-list" class="copy-format-list"></div>
+                        <button id="display-format-reset-btn" class="sm-btn" data-i18n="btn_reset">초기화</button>
+                    </div>
+                    <div class="copy-format-line">
+                        <span class="copy-format-title" data-i18n="label_copy_format_row">복사 양식</span>
+                        <div id="copy-format-list" class="copy-format-list"></div>
+                        <button id="copy-format-reset-btn" class="sm-btn" data-i18n="btn_reset">초기화</button>
+                    </div>
                 </div>
+
             </div>
 
             <!-- Content Screens -->
@@ -148,19 +162,21 @@
                 <table class="data-table">
                     <thead id="table-head">
                         <tr>
+                            <th class="move-col" style="width: 70px;" data-i18n="th_order">순서</th>
                             <th style="width: 110px;" data-i18n="th_tz_abbr">시간대</th>
                             <th style="width: 180px;" data-i18n="th_region">국가 - 지역</th>
-                            <th style="width: 110px;" data-i18n="th_utc_offset">UTC Offset</th>
+                            <th style="width: 110px;" data-i18n="th_utc_offset">UTC OFFSET</th>
                             <!-- Day/Time columns dynamic -->
                             <th class="dynamic-col" data-i18n="th_time_day_main">시간</th>
-                            <th style="width: 70px;" data-i18n="th_copy">복사</th>
-                            <th style="width: 70px;" data-i18n="th_remove">제거</th>
+                            <th class="export-exclude" style="width: 70px;" data-i18n="th_copy">복사</th>
+                            <th class="export-exclude" style="width: 70px;" data-i18n="th_remove">제거</th>
                         </tr>
                     </thead>
                     <tbody id="clocks-container">
                         <!-- UTC Row -->
                         <tr class="time-row static" id="tz-row-utc">
-                            <td><span class="zone-code">UTC</span></td>
+                            <td class="move-cell"><span class="drag-spacer" aria-hidden="true"></span></td>
+                            <td class="timezone-cell"><span class="zone-code">UTC</span></td>
                             <td>
                                 <div class="zone-info">
                                     <span class="zone-name" data-i18n="utc_name">표준시</span>
@@ -170,8 +186,8 @@
                             <!-- Dynamic Content -->
                             <td class="dynamic-cell"><input type="text" class="time-input" id="utc-time-input-0"
                                     spellcheck="false" data-slot="0"></td>
-                            <td><button class="sm-btn" id="copy-utc-btn" title="복사">📋</button></td>
-                            <td></td>
+                            <td class="export-exclude copy-cell"><button class="sm-btn" id="copy-utc-btn" title="복사">📋</button></td>
+                            <td class="export-exclude remove-cell"></td>
                         </tr>
                         <!-- Dynamic Rows -->
                     </tbody>
@@ -182,31 +198,31 @@
                 <div class="calc-grid">
                     <!-- Unit Converter Card -->
                     <div class="calc-card">
-                        <h2 data-i18n="calc_unit_title">🔄 시간 단위 변환기</h2>
+                        <h2 data-i18n="calc_unit_title">시간 단위 변환</h2>
                         <div class="calc-form converter-v-list">
                             <div class="conv-row">
-                                <label data-i18n="calc_label_day">일 (Day)</label>
+                                <label data-i18n="calc_label_day">일(Day)</label>
                                 <div class="conv-input-group">
                                     <input type="number" id="conv-day" class="form-input" placeholder="0">
                                     <button class="sm-btn" id="copy-conv-day-btn">📋</button>
                                 </div>
                             </div>
                             <div class="conv-row">
-                                <label data-i18n="calc_label_hour">시 (Hour)</label>
+                                <label data-i18n="calc_label_hour">시간(Hour)</label>
                                 <div class="conv-input-group">
                                     <input type="number" id="conv-hour" class="form-input" placeholder="0">
                                     <button class="sm-btn" id="copy-conv-hour-btn">📋</button>
                                 </div>
                             </div>
                             <div class="conv-row">
-                                <label data-i18n="calc_label_min">분 (Minute)</label>
+                                <label data-i18n="calc_label_min">분(Minute)</label>
                                 <div class="conv-input-group">
                                     <input type="number" id="conv-min" class="form-input" placeholder="0">
                                     <button class="sm-btn" id="copy-conv-min-btn">📋</button>
                                 </div>
                             </div>
                             <div class="conv-row">
-                                <label data-i18n="calc_label_sec">초 (Second)</label>
+                                <label data-i18n="calc_label_sec">초(Second)</label>
                                 <div class="conv-input-group">
                                     <input type="number" id="conv-sec" class="form-input" placeholder="0">
                                     <button class="sm-btn" id="copy-conv-sec-btn">📋</button>
@@ -216,7 +232,7 @@
                     </div>
 
                     <div class="calc-card">
-                        <h2 data-i18n="calc_period_title">📅 기간 계산</h2>
+                        <h2 data-i18n="calc_period_title">기간 계산</h2>
                         <div class="calc-form">
                             <div class="form-group"><label data-i18n="calc_label_start">시작일</label><input type="date"
                                     id="period-start" class="form-input"></div>
@@ -259,7 +275,7 @@
                         </div>
                     </div>
                     <div class="calc-card">
-                        <h2 data-i18n="calc_offset_title">🚀 날짜 이동 계산</h2>
+                        <h2 data-i18n="calc_offset_title">날짜 이동 계산</h2>
                         <div class="calc-form">
                             <div class="form-group"><label data-i18n="calc_label_base">기준일</label><input type="date"
                                     id="offset-start" class="form-input"></div>
@@ -269,14 +285,13 @@
                                 <select id="off-unit" class="form-select">
                                     <option value="day" data-i18n="calc_unit_day">일</option>
                                     <option value="week" data-i18n="calc_unit_week">주</option>
-                                    <option value="month" data-i18n="calc_unit_month">월</option>
+                                    <option value="month" data-i18n="calc_unit_month">개월</option>
                                 </select><span class="label-large" style="margin-left: 5px;"
                                     data-i18n="calc_label_after">후</span>
                             </div>
                             <div class="calc-result-box">
                                 <div>
-                                    <div class="calc-result-label" data-i18n="calc_label_result">
-                                        결과 날짜</div><span class="result-val result-val-date" id="offset-res">-</span>
+                                    <div class="calc-result-label" data-i18n="calc_label_result">결과 날짜</div><span class="result-val result-val-date" id="offset-res">-</span>
                                 </div>
                                 <button class="sm-btn" id="copy-offset-res-btn" title="복사">📋</button>
                             </div>
@@ -291,7 +306,7 @@
     <div id="full-tz-overlay" class="overlay">
         <div class="overlay-content">
             <div class="overlay-header">
-                <h3 data-i18n="overlay_select_tz">타임존 선택</h3><button id="close-overlay" class="icon-btn">✕</button>
+                <h3 data-i18n="overlay_select_tz">시간대 선택</h3><button id="close-overlay" class="icon-btn">✖</button>
             </div>
             <div id="full-tz-list" class="tz-grid"></div>
         </div>
@@ -299,8 +314,10 @@
 
     <!-- Toast Container -->
     <div id="toast-container" class="toast-container"></div>
+    <input type="file" id="settings-import-file" accept="application/json,.json" style="display:none;">
 
-    <script src="main.js?v=320"></script>
+    <script src="main.js?v=325"></script>
 </body>
 
 </html>
+

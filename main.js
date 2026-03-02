@@ -1,31 +1,55 @@
-let isRealtime = true;
+﻿let isRealtime = true;
 let globalTimes = [new Date(), new Date()];
 let slotCount = 1;
 let uiScale = 1.0;
 let baseTimezoneId = "utc";
 let showTimeAdjust = false;
 let showCopyFormat = false;
-const COPY_FORMAT_KEYS = ["timezone", "region", "offset", "time", "period_days", "period_time"];
+let ignoreDST = false;
+const COPY_FORMAT_KEYS = ["timezone", "region", "offset", "time_day", "time", "period_days", "period_time"];
 const PERIOD_RESULT_IDS = new Set(["period-res", "period-hour-res", "period-min-res", "period-sec-res"]);
 const MAIN_TABS = ["live", "fixed", "calc"];
-let copyFormatOrder = [...COPY_FORMAT_KEYS];
-let copyFormatEnabled = {
+const DEFAULT_DISPLAY_FORMAT_ENABLED = {
     timezone: true,
     region: true,
     offset: true,
-    time: true,
-    period_days: true,
+    time_day: true,
+    time: false,
+    period_days: false,
     period_time: true
 };
+const DEFAULT_COPY_FORMAT_ENABLED = {
+    timezone: true,
+    region: true,
+    offset: true,
+    time_day: false,
+    time: true,
+    period_days: false,
+    period_time: true
+};
+let displayFormatOrder = [...COPY_FORMAT_KEYS];
+let displayFormatEnabled = { ...DEFAULT_DISPLAY_FORMAT_ENABLED };
+let copyFormatOrder = [...COPY_FORMAT_KEYS];
+let copyFormatEnabled = { ...DEFAULT_COPY_FORMAT_ENABLED };
 let currentMainTab = "live";
 let activeGroupIdByMainTab = { live: 0, fixed: 0 };
-const VERSION = "3.2.0";
-const STORAGE_KEY = "GTV_v320_Data";
+const VERSION = "3.2.3";
+const STORAGE_KEY = "GTV_v323_Data";
 const THEME_STORAGE_KEY = "GTV_Theme";
+const LANG_STORAGE_KEY = "GTV_Lang";
+const LEGACY_STORAGE_KEYS = ["GTV_v322_Data", "GTV_v321_Data", "GTV_v320_Data", "GTV_v310_Data", "GTV_v300_Data", "GTV_v200_Data", "GTV_v170_Data", "GTV_v160_Data", "GTV_v150_Data", "GTV_v140_Data"];
 const THEME_LIST = ["dark", "light"];
+const TABLE_IMAGE_EXPORT_WIDTH = 1920;
 let currentTheme = "dark";
 
-// --- 타임존 마стер 데이터 (Extensive Mapping for Abbr) ---
+function applyVersionBranding() {
+    const titleText = `Global Time v${VERSION}`;
+    document.title = titleText;
+    const badge = document.getElementById("version-badge");
+    if (badge) badge.textContent = `ver ${VERSION}`;
+}
+
+// --- ??꾩〈 留댮곎궿둘 ?곗씠??(Extensive Mapping for Abbr) ---
 const TZ_DATABASE = [
     { zone: "Asia/Seoul", name: "대한민국", city: "서울", name_en: "South Korea", city_en: "Seoul" },
     { zone: "Asia/Tokyo", name: "일본", city: "도쿄", name_en: "Japan", city_en: "Tokyo" },
@@ -42,10 +66,10 @@ const TZ_DATABASE = [
     { zone: "Europe/Paris", name: "프랑스", city: "파리", name_en: "France", city_en: "Paris" },
     { zone: "Europe/Berlin", name: "독일", city: "베를린", name_en: "Germany", city_en: "Berlin" },
     { zone: "Europe/Moscow", name: "러시아", city: "모스크바", name_en: "Russia", city_en: "Moscow" },
-    { zone: "Europe/Istanbul", name: "터키", city: "이스탄불", name_en: "Turkey", city_en: "Istanbul" },
+    { zone: "Europe/Istanbul", name: "튀르키예", city: "이스탄불", name_en: "Turkey", city_en: "Istanbul" },
     { zone: "America/New_York", name: "미국", city: "뉴욕", name_en: "USA", city_en: "New York" },
     { zone: "America/Chicago", name: "미국", city: "시카고", name_en: "USA", city_en: "Chicago" },
-    { zone: "America/Los_Angeles", name: "미국", city: "LA", name_en: "USA", city_en: "LA" },
+    { zone: "America/Los_Angeles", name: "미국", city: "로스앤젤레스", name_en: "USA", city_en: "Los Angeles" },
     { zone: "America/Mexico_City", name: "멕시코", city: "멕시코시티", name_en: "Mexico", city_en: "Mexico City" },
     { zone: "America/Sao_Paulo", name: "브라질", city: "상파울루", name_en: "Brazil", city_en: "Sao Paulo" },
     { zone: "Australia/Sydney", name: "호주", city: "시드니", name_en: "Australia", city_en: "Sydney" },
@@ -132,11 +156,16 @@ function getBaseTimezoneRef() {
     return tz;
 }
 
-function sanitizeCopyFormatOrder(order) {
+function getDefaultFormatEnabled(mode = "display") {
+    return mode === "copy" ? { ...DEFAULT_COPY_FORMAT_ENABLED } : { ...DEFAULT_DISPLAY_FORMAT_ENABLED };
+}
+
+function sanitizeCopyFormatOrder(order, legacyTimeTo = null) {
     const safeOrder = [];
     if (Array.isArray(order)) {
         order.forEach(key => {
-            const normalizedKey = key === "period" ? "period_days" : key;
+            let normalizedKey = key === "period" ? "period_days" : key;
+            if (normalizedKey === "time" && legacyTimeTo === "time_day") normalizedKey = "time_day";
             if (COPY_FORMAT_KEYS.includes(normalizedKey) && !safeOrder.includes(normalizedKey)) safeOrder.push(normalizedKey);
         });
     }
@@ -146,8 +175,8 @@ function sanitizeCopyFormatOrder(order) {
     return safeOrder;
 }
 
-function sanitizeCopyFormatEnabled(enabled) {
-    const safe = {};
+function sanitizeCopyFormatEnabled(enabled, mode = "display", legacyTimeTo = null) {
+    const safe = getDefaultFormatEnabled(mode);
     COPY_FORMAT_KEYS.forEach(key => {
         if (enabled && typeof enabled === "object") {
             if (Object.prototype.hasOwnProperty.call(enabled, key)) {
@@ -158,8 +187,11 @@ function sanitizeCopyFormatEnabled(enabled) {
                 safe[key] = !!enabled.period;
                 return;
             }
+            if (legacyTimeTo && key === legacyTimeTo && Object.prototype.hasOwnProperty.call(enabled, "time")) {
+                safe[key] = !!enabled.time;
+                return;
+            }
         }
-        safe[key] = true;
     });
     return safe;
 }
@@ -207,6 +239,7 @@ document.addEventListener("DOMContentLoaded", () => {
     loadPersistence();
     applyTheme(loadThemePreference(), false);
     applyTranslations();
+    applyVersionBranding();
     initUI();
     initDragAndDrop();
     initSearchAndSelect();
@@ -275,13 +308,33 @@ function initUI() {
         };
     }
 
+    const ignoreDSTToggle = document.getElementById("toggle-ignore-dst");
+    if (ignoreDSTToggle) {
+        ignoreDSTToggle.checked = ignoreDST;
+        ignoreDSTToggle.onchange = (e) => {
+            ignoreDST = !!e.target.checked;
+            updateClocks();
+            savePersistence();
+        };
+    }
+
+    const displayFormatResetBtn = document.getElementById("display-format-reset-btn");
+    if (displayFormatResetBtn) {
+        displayFormatResetBtn.onclick = () => {
+            displayFormatOrder = [...COPY_FORMAT_KEYS];
+            displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
+            renderCopyFormatControls();
+            renderList();
+            savePersistence();
+        };
+    }
+
     const copyFormatResetBtn = document.getElementById("copy-format-reset-btn");
     if (copyFormatResetBtn) {
         copyFormatResetBtn.onclick = () => {
             copyFormatOrder = [...COPY_FORMAT_KEYS];
-            copyFormatEnabled = sanitizeCopyFormatEnabled(null);
+            copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
             renderCopyFormatControls();
-            renderList();
             savePersistence();
         };
     }
@@ -309,7 +362,7 @@ function initUI() {
     };
 
     document.getElementById("add-group-btn").onclick = () => {
-        const name = prompt(t("prompt_new_group"), t("nav_live"));
+        const name = prompt(t("prompt_new_group"), "그룹");
         if (name) {
             groups.push({ name, zones: [] });
             activeGroupId = groups.length - 1;
@@ -327,6 +380,19 @@ function initUI() {
     if (saveTableImageBtn) {
         saveTableImageBtn.onclick = saveTimezoneTableImage;
     }
+    const exportSettingsBtn = document.getElementById("export-settings-btn");
+    if (exportSettingsBtn) {
+        exportSettingsBtn.onclick = exportSettingsToJSON;
+    }
+    const importSettingsBtn = document.getElementById("import-settings-btn");
+    const settingsImportFile = document.getElementById("settings-import-file");
+    if (importSettingsBtn && settingsImportFile) {
+        importSettingsBtn.onclick = () => {
+            settingsImportFile.value = "";
+            settingsImportFile.click();
+        };
+        settingsImportFile.onchange = handleSettingsImportFile;
+    }
 
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) {
@@ -342,6 +408,7 @@ function initUI() {
         langSelect.value = currentLang;
         langSelect.onchange = (e) => {
             setLanguage(e.target.value);
+            applyVersionBranding();
             updateTZDropdown(); // Ensure dropdown is updated
             renderGroups();
             renderList();
@@ -353,6 +420,20 @@ function initUI() {
             }
         };
     }
+
+    const resetAllSettingsBtn = document.getElementById("reset-all-settings-btn");
+    if (resetAllSettingsBtn) {
+        resetAllSettingsBtn.onclick = resetAllSettings;
+    }
+
+    document.addEventListener("dragstart", (e) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest("input, textarea, [contenteditable='true']")) return;
+        if (!target.closest(".drag-handle, .copy-format-drag")) {
+            e.preventDefault();
+        }
+    });
 
     renderBaseTimeSelect();
     refreshSelectWidths();
@@ -404,6 +485,7 @@ function switchMainTab(tab) {
     const extraTimeToggle = document.getElementById("toggle-extra-time");
     const timeAdjustToggle = document.getElementById("toggle-time-adjust");
     const copyFormatToggle = document.getElementById("toggle-copy-format");
+    const ignoreDSTToggle = document.getElementById("toggle-ignore-dst");
 
     const statusText = document.getElementById("status-text");
     if (statusText) statusText.textContent = isRealtime ? t("status_sync") : t("status_fixed");
@@ -422,6 +504,10 @@ function switchMainTab(tab) {
     if (copyFormatToggle) {
         copyFormatToggle.checked = showCopyFormat;
     }
+    if (ignoreDSTToggle) {
+        ignoreDSTToggle.disabled = isRealtime;
+        ignoreDSTToggle.checked = !isRealtime && ignoreDST;
+    }
     updateOptionRowVisibility();
 
     renderGroups();
@@ -438,11 +524,13 @@ function updateOptionRowVisibility() {
 
     const extraTimeGroup = document.getElementById("toggle-extra-time")?.closest(".control-group");
     const timeAdjustGroup = document.getElementById("toggle-time-adjust")?.closest(".control-group");
+    const ignoreDSTGroup = document.getElementById("toggle-ignore-dst")?.closest(".control-group");
     const copyFormatGroup = document.getElementById("toggle-copy-format")?.closest(".control-group");
 
     optionRow.style.display = "flex";
     if (extraTimeGroup) extraTimeGroup.style.display = isRealtime ? "none" : "flex";
     if (timeAdjustGroup) timeAdjustGroup.style.display = isRealtime ? "none" : "flex";
+    if (ignoreDSTGroup) ignoreDSTGroup.style.display = isRealtime ? "none" : "flex";
     if (copyFormatGroup) copyFormatGroup.style.display = "flex";
 }
 
@@ -595,6 +683,7 @@ function getCopyFieldLabel(key) {
         timezone: "copy_field_timezone",
         region: "copy_field_region",
         offset: "copy_field_offset",
+        time_day: "copy_field_time_day",
         time: "copy_field_time",
         period_days: "copy_field_period",
         period_time: "copy_field_period_time"
@@ -612,41 +701,33 @@ function getCopyFormatDropTarget(container, x) {
     }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
 }
 
-function renderCopyFormatControls() {
-    const row = document.getElementById("copy-format-row");
-    const list = document.getElementById("copy-format-list");
-    if (!row || !list) return;
-
-    row.style.display = showCopyFormat ? "flex" : "none";
-    if (!showCopyFormat) {
-        list.innerHTML = "";
-        return;
-    }
+function renderFormatControlList(list, order, enabled, options = {}) {
+    const { onToggle, onReorder } = options;
+    if (!list) return;
 
     list.innerHTML = "";
-    copyFormatOrder.forEach(key => {
+    order.forEach(key => {
         if (!COPY_FORMAT_KEYS.includes(key)) return;
 
         const item = document.createElement("div");
         item.className = "copy-format-item";
         item.dataset.key = key;
-        item.draggable = true;
+        item.draggable = false;
 
         const dragHandle = document.createElement("span");
         dragHandle.className = "copy-format-drag";
-        dragHandle.textContent = "☰";
+        dragHandle.textContent = "↔";
         dragHandle.title = t("tooltip_reorder");
+        dragHandle.draggable = true;
 
         const label = document.createElement("label");
         label.className = "copy-format-item-label";
 
         const checkbox = document.createElement("input");
         checkbox.type = "checkbox";
-        checkbox.checked = !!copyFormatEnabled[key];
+        checkbox.checked = !!enabled[key];
         checkbox.addEventListener("change", () => {
-            copyFormatEnabled[key] = checkbox.checked;
-            renderList();
-            savePersistence();
+            if (typeof onToggle === "function") onToggle(key, checkbox.checked);
         });
 
         const text = document.createElement("span");
@@ -657,17 +738,17 @@ function renderCopyFormatControls() {
         item.appendChild(dragHandle);
         item.appendChild(label);
 
-        item.addEventListener("dragstart", (e) => {
+        dragHandle.addEventListener("dragstart", (e) => {
             item.classList.add("dragging");
             if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", key);
             }
         });
-        item.addEventListener("dragend", () => {
+        dragHandle.addEventListener("dragend", () => {
             item.classList.remove("dragging");
-            copyFormatOrder = [...list.querySelectorAll(".copy-format-item")].map(el => el.dataset.key);
-            savePersistence();
+            const nextOrder = [...list.querySelectorAll(".copy-format-item")].map(el => el.dataset.key);
+            if (typeof onReorder === "function") onReorder(nextOrder);
         });
 
         list.appendChild(item);
@@ -683,6 +764,186 @@ function renderCopyFormatControls() {
     list.ondrop = (e) => e.preventDefault();
 }
 
+function renderCopyFormatControls() {
+    const row = document.getElementById("copy-format-row");
+    const displayList = document.getElementById("display-format-list");
+    const copyList = document.getElementById("copy-format-list");
+    if (!row || !displayList || !copyList) return;
+
+    row.style.display = showCopyFormat ? "flex" : "none";
+    if (!showCopyFormat) {
+        displayList.innerHTML = "";
+        copyList.innerHTML = "";
+        return;
+    }
+
+    renderFormatControlList(displayList, displayFormatOrder, displayFormatEnabled, {
+        onToggle: (key, checked) => {
+            displayFormatEnabled[key] = checked;
+            renderList();
+            savePersistence();
+        },
+        onReorder: (nextOrder) => {
+            displayFormatOrder = sanitizeCopyFormatOrder(nextOrder);
+            renderList();
+            savePersistence();
+        }
+    });
+
+    renderFormatControlList(copyList, copyFormatOrder, copyFormatEnabled, {
+        onToggle: (key, checked) => {
+            copyFormatEnabled[key] = checked;
+            savePersistence();
+        },
+        onReorder: (nextOrder) => {
+            copyFormatOrder = sanitizeCopyFormatOrder(nextOrder);
+            savePersistence();
+        }
+    });
+}
+
+function getDisplayColumns(effectiveSlotCount) {
+    const columns = [];
+    sanitizeCopyFormatOrder(displayFormatOrder).forEach(key => {
+        if (!displayFormatEnabled[key]) return;
+        if (key === "time_day") {
+            columns.push("time_day_main");
+            if (effectiveSlotCount > 1) columns.push("time_day_extra");
+            return;
+        }
+        if (key === "time") {
+            columns.push("time_main");
+            if (effectiveSlotCount > 1) columns.push("time_extra");
+            return;
+        }
+        if ((key === "period_days" || key === "period_time") && effectiveSlotCount <= 1) {
+            return;
+        }
+        columns.push(key);
+    });
+    return columns;
+}
+
+function getDisplayColumnHeader(colKey) {
+    switch (colKey) {
+        case "timezone":
+            return `<th style="width: 110px;">${t("th_tz_abbr")}</th>`;
+        case "region":
+            return `<th style="width: 220px;">${t("th_region")}</th>`;
+        case "offset":
+            return `<th style="width: 140px;">${t("th_utc_offset")}</th>`;
+        case "time_day_main":
+            return `<th class="dynamic-col">${t("th_time_with_day_main")}</th>`;
+        case "time_day_extra":
+            return `<th class="dynamic-col">${t("th_time_with_day_extra")}</th>`;
+        case "time_main":
+            return `<th class="dynamic-col">${t("th_time_main")}</th>`;
+        case "time_extra":
+            return `<th class="dynamic-col">${t("th_time_extra")}</th>`;
+        case "period_days":
+            return `<th style="width: 90px;">${t("th_period_days")}</th>`;
+        case "period_time":
+            return `<th style="width: 170px;">${t("th_period_time")}</th>`;
+        default:
+            return "";
+    }
+}
+
+function buildStaticRowCell(colKey, slotCountToRender, zoneNameHtml = "") {
+    switch (colKey) {
+        case "timezone":
+            return `<td class="timezone-cell"><div class="abbr-cell"><span class="zone-code"></span></div></td>`;
+        case "region":
+            return `<td><div class="zone-info"><span class="zone-name">${zoneNameHtml}</span></div></td>`;
+        case "offset":
+            return `<td><span class="offset-text"></span></td>`;
+        case "time_day_main":
+        case "time_day_extra": {
+            const slotIdx = colKey === "time_day_main" ? 0 : 1;
+            if (slotIdx >= slotCountToRender) return "";
+            return `
+                <td class="dynamic-cell">
+                    <div class="time-day-group">
+                        <span class="dn-icon dn-slot-${slotIdx}"></span>
+                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" data-slot="${slotIdx}">
+                        <span class="day-badge day-slot-${slotIdx}">-</span>
+                    </div>
+                </td>
+            `;
+        }
+        case "time_main":
+        case "time_extra": {
+            const slotIdx = colKey === "time_main" ? 0 : 1;
+            if (slotIdx >= slotCountToRender) return "";
+            return `
+                <td class="dynamic-cell">
+                    <div class="time-day-group">
+                        <span class="dn-icon dn-slot-${slotIdx}"></span>
+                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" data-slot="${slotIdx}">
+                    </div>
+                </td>
+            `;
+        }
+        case "period_days":
+            return `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
+        case "period_time":
+            return `<td class="period-time-cell"><span class="period-time-text">-</span></td>`;
+        default:
+            return "";
+    }
+}
+
+function buildDynamicRowCell(colKey, slotCountToRender) {
+    switch (colKey) {
+        case "timezone":
+            return `<td class="timezone-cell"><div class="abbr-cell"><span class="zone-code"></span></div></td>`;
+        case "region":
+            return `<td><div class="zone-info"><span class="zone-name"></span></div></td>`;
+        case "offset":
+            return `<td><span class="offset-text"></span></td>`;
+        case "time_day_main":
+        case "time_day_extra": {
+            const slotIdx = colKey === "time_day_main" ? 0 : 1;
+            if (slotIdx >= slotCountToRender) return "";
+            return `
+                <td class="dynamic-cell">
+                    <div class="time-day-group">
+                        <span class="dn-icon dn-slot-${slotIdx}"></span>
+                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${slotIdx}">
+                        <span class="day-badge day-slot-${slotIdx}"></span>
+                    </div>
+                </td>
+            `;
+        }
+        case "time_main":
+        case "time_extra": {
+            const slotIdx = colKey === "time_main" ? 0 : 1;
+            if (slotIdx >= slotCountToRender) return "";
+            return `
+                <td class="dynamic-cell">
+                    <div class="time-day-group">
+                        <span class="dn-icon dn-slot-${slotIdx}"></span>
+                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${slotIdx}">
+                    </div>
+                </td>
+            `;
+        }
+        case "period_days":
+            return `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
+        case "period_time":
+            return `<td class="period-time-cell"><span class="period-time-text">-</span></td>`;
+        default:
+            return "";
+    }
+}
+
+function buildRowActionCells(copyButtonTitle, removeButtonText) {
+    const copyCell = `<td class="export-exclude copy-cell"><div class="btn-group"><button class="sm-btn copy-row-btn" title="${copyButtonTitle}">📋</button></div></td>`;
+    const removeCell = removeButtonText
+        ? `<td class="export-exclude remove-cell"><div class="btn-group"><button class="sm-btn danger remove-row-btn">${removeButtonText}</button></div></td>`
+        : `<td class="export-exclude remove-cell"></td>`;
+    return `${copyCell}${removeCell}`;
+}
 // --- Group Management ---
 function renderGroups() {
     const container = document.getElementById("group-tabs-container");
@@ -709,7 +970,7 @@ function renderGroups() {
 
         const editBtn = document.createElement("button");
         editBtn.className = "group-edit-btn";
-        editBtn.innerHTML = "✎"; // Pencil or Edit icon
+        editBtn.innerHTML = "✎";
         editBtn.title = t("tooltip_edit");
         editBtn.onclick = (e) => {
             e.stopPropagation();
@@ -718,7 +979,7 @@ function renderGroups() {
 
         const delBtn = document.createElement("button");
         delBtn.className = "group-del-btn";
-        delBtn.innerHTML = "✕";
+        delBtn.innerHTML = "✖";
         delBtn.title = t("tooltip_delete");
         delBtn.onclick = (e) => {
             e.stopPropagation();
@@ -739,8 +1000,10 @@ function renderGroups() {
         };
 
         btn.appendChild(label);
-        btn.appendChild(editBtn);
-        btn.appendChild(delBtn);
+        if (idx === activeGroupId) {
+            btn.appendChild(editBtn);
+            btn.appendChild(delBtn);
+        }
         container.appendChild(btn);
     });
     container.appendChild(addBtn);
@@ -761,82 +1024,48 @@ function renameGroup(idx) {
 const DAYS_KR = ["일", "월", "화", "수", "목", "금", "토"];
 
 function renderList() {
-    // Mode Isolation: Realtime mode is always 1 slot
     const effectiveSlotCount = isRealtime ? 1 : slotCount;
-    const showTimezoneCol = !!copyFormatEnabled.timezone;
-    const showRegionCol = !!copyFormatEnabled.region;
-    const showOffsetCol = !!copyFormatEnabled.offset;
-    const showTimeCol = !!copyFormatEnabled.time;
-    const showPeriodDays = effectiveSlotCount > 1 && !!copyFormatEnabled.period_days;
-    const showPeriodTime = effectiveSlotCount > 1 && !!copyFormatEnabled.period_time;
+    const displayColumns = getDisplayColumns(effectiveSlotCount);
     const baseRef = getBaseTimezoneRef();
     const baseRefName = escapeHtml(getZoneDisplayName(baseRef));
     const theadRow = document.querySelector("#table-head tr");
+
     if (theadRow) {
-        const headCells = [];
-        if (showTimezoneCol) headCells.push(`<th style="width: 110px;">${t("th_tz_abbr")}</th>`);
-        if (showRegionCol) headCells.push(`<th style="width: 220px;">${t("th_region")}</th>`);
-        if (showOffsetCol) headCells.push(`<th style="width: 140px;">${t("th_utc_offset")}</th>`);
-        if (showTimeCol) {
-            headCells.push(`<th class="dynamic-col">${t("th_time_day_main")}</th>`);
-            if (effectiveSlotCount > 1) headCells.push(`<th class="dynamic-col">${t("th_time_day_extra")}</th>`);
-        }
-        if (showPeriodDays) headCells.push(`<th style="width: 90px;">${t("th_period_days")}</th>`);
-        if (showPeriodTime) headCells.push(`<th style="width: 100px;">${t("th_period_time")}</th>`);
-        headCells.push(`<th style="width: 70px;">${t("th_copy")}</th>`);
-        headCells.push(`<th style="width: 70px;">${t("th_remove")}</th>`);
+        const headCells = [`<th class="move-col" style="width: 70px;">${t("th_order")}</th>`];
+        headCells.push(...displayColumns.map(getDisplayColumnHeader).filter(Boolean));
+        headCells.push(`<th class="export-exclude" style="width: 70px;">${t("th_copy")}</th>`);
+        headCells.push(`<th class="export-exclude" style="width: 70px;">${t("th_remove")}</th>`);
         theadRow.innerHTML = headCells.join("");
     }
 
     const container = document.getElementById("clocks-container");
     container.innerHTML = "";
 
-    // Render Base Row (always pinned at top)
     const baseRow = document.createElement("tr");
     baseRow.className = "time-row static base-row";
     baseRow.id = `tz-row-${baseRef.id}`;
-    let baseInner = "";
-    if (showTimezoneCol) {
-        baseInner += `<td><div class="abbr-cell"><span class="drag-spacer" aria-hidden="true"></span><span class="zone-code"></span></div></td>`;
-    }
-    if (showRegionCol) {
-        baseInner += `<td><div class="zone-info"><span class="zone-name">${baseRefName}</span></div></td>`;
-    }
-    if (showOffsetCol) {
-        baseInner += `<td><span class="offset-text"></span></td>`;
-    }
-    if (showTimeCol) {
-        for (let i = 0; i < effectiveSlotCount; i++) {
-            baseInner += `
-                <td class="dynamic-cell">
-                    <div class="time-day-group">
-                        <span class="dn-icon dn-slot-${i}"></span>
-                        <input type="text" class="time-input slot-${i}" spellcheck="false" data-slot="${i}">
-                        <span class="day-badge day-slot-${i}">-</span>
-                    </div>
-                </td>
-            `;
-        }
-    }
-    if (showPeriodDays) {
-        baseInner += `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
-    }
-    if (showPeriodTime) {
-        baseInner += `<td class="period-time-cell"><span class="period-time-text">-</span></td>`;
-    }
-    baseInner += `<td><div class="btn-group"><button class="sm-btn copy-row-btn" title="${t("tooltip_copy")}">📋</button></div></td>`;
-    baseInner += `<td></td>`;
+    let baseInner = `<td class="move-cell"><span class="drag-spacer" aria-hidden="true"></span></td>`;
+    displayColumns.forEach((colKey) => {
+        baseInner += buildStaticRowCell(colKey, effectiveSlotCount, baseRefName);
+    });
+    baseInner += buildRowActionCells(t("tooltip_copy"), "");
     baseRow.innerHTML = baseInner;
     const baseCopyBtn = baseRow.querySelector(".copy-row-btn");
     if (baseCopyBtn) baseCopyBtn.addEventListener("click", () => copyRow(baseRef.id));
     container.appendChild(baseRow);
 
     for (let i = 0; i < effectiveSlotCount; i++) {
-        const inp = baseRow.querySelector(`.slot-${i}`);
-        if (!inp) continue;
-        inp.onchange = (e) => handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i);
-        inp.onkeydown = (e) => { if (e.key === "Enter") { handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i); inp.blur(); } };
-        if (isRealtime) inp.readOnly = true;
+        const inputs = [...baseRow.querySelectorAll(`.time-input[data-slot="${i}"]`)];
+        inputs.forEach(inp => {
+            inp.onchange = (e) => handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id);
+            inp.onkeydown = (e) => {
+                if (e.key === "Enter") {
+                    handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id);
+                    inp.blur();
+                }
+            };
+            if (isRealtime) inp.readOnly = true;
+        });
     }
 
     if (baseRef.id !== "utc") {
@@ -845,48 +1074,30 @@ function renderList() {
         const utcRow = document.createElement("tr");
         utcRow.className = "time-row static utc-row";
         utcRow.id = "tz-row-utc";
-        let utcInner = "";
-        if (showTimezoneCol) {
-            utcInner += `<td><div class="abbr-cell"><span class="drag-spacer" aria-hidden="true"></span><span class="zone-code"></span></div></td>`;
-        }
-        if (showRegionCol) {
-            utcInner += `<td><div class="zone-info"><span class="zone-name">${utcRefName}</span></div></td>`;
-        }
-        if (showOffsetCol) {
-            utcInner += `<td><span class="offset-text"></span></td>`;
-        }
-        if (showTimeCol) {
-            for (let i = 0; i < effectiveSlotCount; i++) {
-                utcInner += `
-                    <td class="dynamic-cell">
-                        <div class="time-day-group">
-                            <span class="dn-icon dn-slot-${i}"></span>
-                            <input type="text" class="time-input slot-${i}" spellcheck="false" data-slot="${i}">
-                            <span class="day-badge day-slot-${i}">-</span>
-                        </div>
-                    </td>
-                `;
-            }
-        }
-        if (showPeriodDays) {
-            utcInner += `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
-        }
-        if (showPeriodTime) {
-            utcInner += `<td class="period-time-cell"><span class="period-time-text">-</span></td>`;
-        }
-        utcInner += `<td><div class="btn-group"><button class="sm-btn copy-row-btn" title="${t("tooltip_copy")}">📋</button></div></td>`;
-        utcInner += `<td></td>`;
+
+        let utcInner = `<td class="move-cell"><span class="drag-spacer" aria-hidden="true"></span></td>`;
+        displayColumns.forEach((colKey) => {
+            utcInner += buildStaticRowCell(colKey, effectiveSlotCount, utcRefName);
+        });
+        utcInner += buildRowActionCells(t("tooltip_copy"), "");
         utcRow.innerHTML = utcInner;
+
         const utcCopyBtn = utcRow.querySelector(".copy-row-btn");
         if (utcCopyBtn) utcCopyBtn.addEventListener("click", () => copyRow("utc"));
         container.appendChild(utcRow);
 
         for (let i = 0; i < effectiveSlotCount; i++) {
-            const inp = utcRow.querySelector(`.slot-${i}`);
-            if (!inp) continue;
-            inp.onchange = (e) => handleTimeChange(e.target.value, utcRef.zone, i);
-            inp.onkeydown = (e) => { if (e.key === "Enter") { handleTimeChange(e.target.value, utcRef.zone, i); inp.blur(); } };
-            if (isRealtime) inp.readOnly = true;
+            const inputs = [...utcRow.querySelectorAll(`.time-input[data-slot="${i}"]`)];
+            inputs.forEach(inp => {
+                inp.onchange = (e) => handleTimeChange(e.target.value, utcRef.zone, i);
+                inp.onkeydown = (e) => {
+                    if (e.key === "Enter") {
+                        handleTimeChange(e.target.value, utcRef.zone, i);
+                        inp.blur();
+                    }
+                };
+                if (isRealtime) inp.readOnly = true;
+            });
         }
     }
 
@@ -896,113 +1107,61 @@ function renderList() {
         tr.className = "time-row";
         tr.id = `tz-row-${tz.id}`;
         tr.draggable = false;
-        const displayName = escapeHtml(getZoneDisplayName(tz));
-        const dragHandleHtml = `<button type="button" class="drag-handle" draggable="true" title="${t("tooltip_reorder")}">☰</button>`;
-        const fallbackHandleNeeded = !showTimezoneCol;
-        let handlePlaced = !fallbackHandleNeeded;
-        const takeFallbackHandle = () => {
-            if (handlePlaced) return "";
-            handlePlaced = true;
-            return dragHandleHtml;
-        };
 
-        let inner = "";
-        if (showTimezoneCol) {
-            inner += `<td><div class="abbr-cell">${dragHandleHtml}<span class="zone-code"></span></div></td>`;
-        }
-        if (showRegionCol) {
-            const extraHandle = takeFallbackHandle();
-            inner += `<td><div class="zone-info">${extraHandle}<span class="zone-name">${displayName}</span></div></td>`;
-        }
-        if (showOffsetCol) {
-            const extraHandle = takeFallbackHandle();
-            if (extraHandle) {
-                inner += `<td><div class="abbr-cell">${extraHandle}<span class="offset-text"></span></div></td>`;
-            } else {
-                inner += `<td><span class="offset-text"></span></td>`;
-            }
-        }
-        if (showTimeCol) {
-            for (let i = 0; i < effectiveSlotCount; i++) {
-                const extraHandle = i === 0 ? takeFallbackHandle() : "";
-                if (extraHandle) {
-                    inner += `
-                        <td class="dynamic-cell">
-                            <div class="time-day-group">
-                                ${extraHandle}
-                                <span class="dn-icon dn-slot-${i}"></span>
-                                <input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${i}">
-                                <span class="day-badge day-slot-${i}"></span>
-                            </div>
-                        </td>
-                    `;
-                } else {
-                    inner += `
-                        <td class="dynamic-cell">
-                            <div class="time-day-group">
-                                <span class="dn-icon dn-slot-${i}"></span>
-                                <input type="text" class="time-input slot-${i}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${i}">
-                                <span class="day-badge day-slot-${i}"></span>
-                            </div>
-                        </td>
-                    `;
-                }
-            }
-        }
-        if (showPeriodDays) {
-            const extraHandle = takeFallbackHandle();
-            if (extraHandle) {
-                inner += `<td class="period-days-cell"><div class="abbr-cell">${extraHandle}<span class="period-days-text">-</span></div></td>`;
-            } else {
-                inner += `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
-            }
-        }
-        if (showPeriodTime) {
-            const extraHandle = takeFallbackHandle();
-            if (extraHandle) {
-                inner += `<td class="period-time-cell"><div class="abbr-cell">${extraHandle}<span class="period-time-text">-</span></div></td>`;
-            } else {
-                inner += `<td class="period-time-cell"><span class="period-time-text">-</span></td>`;
-            }
-        }
-        const copyCellHandle = takeFallbackHandle();
-        inner += `
-            <td><div class="btn-group">${copyCellHandle}<button class="sm-btn copy-row-btn" title="${t("tooltip_copy")}">📋</button></div></td>
-            <td><div class="btn-group"><button class="sm-btn danger remove-row-btn">✕</button></div></td>
-        `;
+        const dragHandleHtml = `<button type="button" class="drag-handle" draggable="true" title="${t("tooltip_reorder")}">↕</button>`;
+        let inner = `<td class="move-cell"><div class="btn-group">${dragHandleHtml}</div></td>`;
+        displayColumns.forEach((colKey) => {
+            inner += buildDynamicRowCell(colKey, effectiveSlotCount);
+        });
+        inner += buildRowActionCells(t("tooltip_copy"), "✖");
         tr.innerHTML = inner;
+
+        const zoneNameEl = tr.querySelector(".zone-name");
+        if (zoneNameEl) zoneNameEl.textContent = getZoneDisplayName(tz);
+
         const copyBtn = tr.querySelector(".copy-row-btn");
         if (copyBtn) copyBtn.addEventListener("click", () => copyRow(tz.id));
+
         const removeBtn = tr.querySelector(".remove-row-btn");
         if (removeBtn) removeBtn.addEventListener("click", () => removeTimezone(tz.id));
 
         tr.querySelectorAll(".time-input").forEach(inp => {
             const slotIdx = parseInt(inp.dataset.slot, 10);
-            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx);
-            inp.onkeydown = (e) => { if (e.key === "Enter") { handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx); inp.blur(); } };
+            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id);
+            inp.onkeydown = (e) => {
+                if (e.key === "Enter") {
+                    handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id);
+                    inp.blur();
+                }
+            };
         });
 
         const dragHandle = tr.querySelector(".drag-handle");
-        const dragTarget = dragHandle || tr;
-        if (!dragHandle) tr.draggable = true;
-        dragTarget.addEventListener("dragstart", (e) => {
+        if (dragHandle) dragHandle.draggable = true;
+        if (!dragHandle) {
+            container.appendChild(tr);
+            return;
+        }
+
+        dragHandle.addEventListener("dragstart", (e) => {
             tr.classList.add("dragging");
             if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", tz.id);
             }
         });
-        dragTarget.addEventListener("dragend", () => {
+        dragHandle.addEventListener("dragend", () => {
             tr.classList.remove("dragging");
             saveOrder();
         });
+
         container.appendChild(tr);
     });
+
     renderBaseTimeSelect();
     updateTimeAdjustPanel();
     updateClocks();
 }
-
 // --- Exact Abbr Mapping (Expanded) ---
 const ZONE_MAP = {
     "Asia/Seoul": "KST", "Asia/Tokyo": "JST", "Asia/Shanghai": "CST", "Asia/Hong_Kong": "HKT",
@@ -1027,10 +1186,14 @@ function getBetterAbbr(zone, date) {
 
 function isTimeZoneInDST(zone, date) {
     try {
-        const jan = new Date(date.getFullYear(), 0, 1);
-        const jul = new Date(date.getFullYear(), 6, 1);
-        const stdOffset = Math.max(getTimezoneOffset(zone, jan), getTimezoneOffset(zone, jul));
-        return getTimezoneOffset(zone, date) < stdOffset;
+        const year = date.getUTCFullYear();
+        // Use UTC-noon anchors to avoid local-timezone side effects near midnight boundaries.
+        const jan = new Date(Date.UTC(year, 0, 1, 12, 0, 0));
+        const jul = new Date(Date.UTC(year, 6, 1, 12, 0, 0));
+        const janOffset = getTimezoneOffset(zone, jan);
+        const julOffset = getTimezoneOffset(zone, jul);
+        const standardOffset = Math.min(janOffset, julOffset);
+        return getTimezoneOffset(zone, date) !== standardOffset;
     } catch (e) { return false; }
 }
 
@@ -1041,6 +1204,11 @@ function getTimezoneOffset(zone, date) {
     if (!m) return 0;
     const sign = offStr.includes("+") ? 1 : -1;
     return sign * (parseInt(m[1]) * 60 + parseInt(m[2] || 0));
+}
+
+function getFixedOffsetForDisplay(tz) {
+    if (!ignoreDST || !tz || tz.type !== "standard" || !tz.zone || tz.zone === "UTC") return null;
+    return getTimezoneOffset(tz.zone, globalTimes[0]);
 }
 
 function pad(v) { return String(Math.abs(v)).padStart(2, "0"); }
@@ -1069,7 +1237,7 @@ function getSignedInclusiveDaySpan(mainDateTimeStr, extraDateTimeStr) {
     return sign * dayMagnitude;
 }
 
-function getSignedDurationHms(mainDateTimeStr, extraDateTimeStr) {
+function getSignedDurationDayHourMinute(mainDateTimeStr, extraDateTimeStr) {
     const parseDateTimeToUtcMs = (dateTimeStr) => {
         const m = (dateTimeStr || "").trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
         if (!m) return null;
@@ -1087,18 +1255,35 @@ function getSignedDurationHms(mainDateTimeStr, extraDateTimeStr) {
     const tB = parseDateTimeToUtcMs(extraDateTimeStr);
     if (tA === null || tB === null) return null;
 
-    const sign = tB >= tA ? "" : "-";
-    const totalSec = Math.floor(Math.abs(tB - tA) / 1000);
-    const hour = Math.floor(totalSec / 3600);
-    const minute = Math.floor((totalSec % 3600) / 60);
-    const second = totalSec % 60;
-    return `${sign}${pad(hour)}:${pad(minute)}:${pad(second)}`;
+    const diffMs = tB - tA;
+    const sign = diffMs < 0 ? "-" : "";
+    const totalMinutes = Math.floor(Math.abs(diffMs) / 60000);
+    const day = Math.floor(totalMinutes / 1440);
+    const hour = Math.floor((totalMinutes % 1440) / 60);
+    const minute = totalMinutes % 60;
+
+    if (currentLang === "en") {
+        return `${sign}${day}d ${hour}h ${minute}m`;
+    }
+    return `${sign}${day}일 ${hour}시간 ${minute}분`;
 }
 
-function getLocalPartsByTimezone(date, tz) {
+function getLocalPartsByTimezone(date, tz, fixedOffsetMinutes = null) {
     if (tz.type === "custom") {
         const offsetMin = getCustomOffsetMinutes(tz);
         const shifted = new Date(date.getTime() + (offsetMin * 60000));
+        return {
+            year: shifted.getUTCFullYear(),
+            month: shifted.getUTCMonth() + 1,
+            day: shifted.getUTCDate(),
+            hour: shifted.getUTCHours(),
+            minute: shifted.getUTCMinutes(),
+            second: shifted.getUTCSeconds()
+        };
+    }
+
+    if (Number.isFinite(fixedOffsetMinutes)) {
+        const shifted = new Date(date.getTime() + (fixedOffsetMinutes * 60000));
         return {
             year: shifted.getUTCFullYear(),
             month: shifted.getUTCMonth() + 1,
@@ -1132,13 +1317,16 @@ function getLocalPartsByTimezone(date, tz) {
     };
 }
 
-function getUTCDateFromLocalParts(parts, tz) {
+function getUTCDateFromLocalParts(parts, tz, fixedOffsetMinutes = null) {
     const utcMs = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
     if (tz.type === "custom") {
         const offsetMin = getCustomOffsetMinutes(tz);
         return new Date(utcMs - (offsetMin * 60000));
     }
     if (!tz.zone || tz.zone === "UTC") return new Date(utcMs);
+    if (Number.isFinite(fixedOffsetMinutes)) {
+        return new Date(utcMs - (fixedOffsetMinutes * 60000));
+    }
     const tempUTC = new Date(utcMs);
     const offMs = getTimezoneOffset(tz.zone, tempUTC) * 60000;
     return new Date(utcMs - offMs);
@@ -1183,7 +1371,8 @@ function applyTimeAdjustAction(slotIdx, action) {
     }
 
     const baseRef = getBaseTimezoneRef();
-    let parts = getLocalPartsByTimezone(globalTimes[slotIdx], baseRef);
+    const fixedOffsetMinutes = getFixedOffsetForDisplay(baseRef);
+    let parts = getLocalPartsByTimezone(globalTimes[slotIdx], baseRef, fixedOffsetMinutes);
 
     switch (action) {
         case "midnight":
@@ -1217,7 +1406,7 @@ function applyTimeAdjustAction(slotIdx, action) {
             return;
     }
 
-    globalTimes[slotIdx] = getUTCDateFromLocalParts(parts, baseRef);
+    globalTimes[slotIdx] = getUTCDateFromLocalParts(parts, baseRef, fixedOffsetMinutes);
     updateClocks();
 }
 
@@ -1237,6 +1426,7 @@ function updateRow(id, tz) {
 
     let offsetStr = "";
     let zoneCodeMain = "";
+    const fixedDisplayOffsetMinutes = getFixedOffsetForDisplay(tz);
 
     if (tz.type === "custom") {
         zoneCodeMain = normalizeCustomAbbr(tz.abbr);
@@ -1247,16 +1437,24 @@ function updateRow(id, tz) {
         const minPart = absMin % 60;
         offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
     } else {
-        const offF = new Intl.DateTimeFormat("en-US", { timeZone: tz.zone, timeZoneName: "longOffset" });
-        let partsArr = offF.formatToParts(globalTimes[0]);
-        let offVal = partsArr.find(p => p.type === "timeZoneName")?.value || "GMT+0";
-        // Normalize to UTC+HH:mm (No GMT)
-        const match = offVal.match(/[+-](\d{1,2}):?(\d{2})?/);
-        if (match) {
-            const sign = offVal.includes("+") ? "+" : "-";
-            offsetStr = `UTC${sign}${pad(match[1])}:${pad(match[2] || 0)}`;
+        if (Number.isFinite(fixedDisplayOffsetMinutes)) {
+            const sign = fixedDisplayOffsetMinutes >= 0 ? "+" : "-";
+            const absMin = Math.abs(fixedDisplayOffsetMinutes);
+            const absHour = Math.floor(absMin / 60);
+            const minPart = absMin % 60;
+            offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
         } else {
-            offsetStr = "UTC+00:00";
+            const offF = new Intl.DateTimeFormat("en-US", { timeZone: tz.zone, timeZoneName: "longOffset" });
+            let partsArr = offF.formatToParts(globalTimes[0]);
+            let offVal = partsArr.find(p => p.type === "timeZoneName")?.value || "GMT+0";
+            // Normalize to UTC+HH:mm (No GMT)
+            const match = offVal.match(/[+-](\d{1,2}):?(\d{2})?/);
+            if (match) {
+                const sign = offVal.includes("+") ? "+" : "-";
+                offsetStr = `UTC${sign}${pad(match[1])}:${pad(match[2] || 0)}`;
+            } else {
+                offsetStr = "UTC+00:00";
+            }
         }
         zoneCodeMain = getBetterAbbr(tz.zone, globalTimes[0]);
     }
@@ -1278,9 +1476,10 @@ function updateRow(id, tz) {
     const slotTimeParts = [];
     for (let i = 0; i < effectiveSlotCount; i++) {
         let t;
-        if (tz.type === "custom") {
+        if (tz.type === "custom" || Number.isFinite(fixedDisplayOffsetMinutes)) {
             const curBase = globalTimes[i];
-            const tMs = curBase.getTime() + (getCustomOffsetMinutes(tz) * 60000);
+            const offsetMin = tz.type === "custom" ? getCustomOffsetMinutes(tz) : fixedDisplayOffsetMinutes;
+            const tMs = curBase.getTime() + (offsetMin * 60000);
             t = new Date(tMs);
         } else {
             const f = new Intl.DateTimeFormat("en-US", {
@@ -1296,15 +1495,15 @@ function updateRow(id, tz) {
             };
         }
 
-        const input = row.querySelector(`.slot-${i}`) || row.querySelector(`#utc-time-input-${i}`);
-        const dayBadge = row.querySelector(`.day-slot-${i}`) || row.querySelector(`#utc-day-${i}`);
-        const dnIcon = row.querySelector(`.dn-slot-${i}`) || row.querySelector(`#utc-dn-${i}`);
+        const inputs = [...row.querySelectorAll(`.time-input[data-slot="${i}"]`)];
+        const dayBadges = [...row.querySelectorAll(`.day-slot-${i}`)];
+        const dnIcons = [...row.querySelectorAll(`.dn-slot-${i}`)];
 
         let displayHour = 0;
         let displayDow = 0;
         let timeStr = "";
 
-        if (tz.type === "custom") {
+        if (t instanceof Date) {
             displayHour = t.getUTCHours();
             displayDow = t.getUTCDay();
             timeStr = `${t.getUTCFullYear()}-${pad(t.getUTCMonth() + 1)}-${pad(t.getUTCDate())} ${pad(displayHour)}:${pad(t.getUTCMinutes())}:${pad(t.getUTCSeconds())}`;
@@ -1314,12 +1513,14 @@ function updateRow(id, tz) {
             timeStr = t.str;
         }
 
-        if (input && document.activeElement !== input) input.value = timeStr;
-        if (dayBadge) {
+        inputs.forEach(input => {
+            if (document.activeElement !== input) input.value = timeStr;
+        });
+        dayBadges.forEach(dayBadge => {
             dayBadge.textContent = I18N_DATA[currentLang].days[displayDow];
-            dayBadge.className = "day-badge " + (displayDow === 0 ? "day-sun" : (displayDow === 6 ? "day-sat" : ""));
-        }
-        updateDN(displayHour, dnIcon);
+            dayBadge.className = "day-badge day-slot-" + i + " " + (displayDow === 0 ? "day-sun" : (displayDow === 6 ? "day-sat" : ""));
+        });
+        dnIcons.forEach(dnIcon => updateDN(displayHour, dnIcon));
         slotTimeParts.push(timeStr);
     }
 
@@ -1336,7 +1537,7 @@ function updateRow(id, tz) {
     const periodTimeEl = row.querySelector(".period-time-text");
     if (periodTimeEl) {
         if (effectiveSlotCount > 1 && slotTimeParts.length > 1) {
-            const spanTime = getSignedDurationHms(slotTimeParts[0], slotTimeParts[1]);
+            const spanTime = getSignedDurationDayHourMinute(slotTimeParts[0], slotTimeParts[1]);
             periodTimeEl.textContent = spanTime === null ? "-" : spanTime;
         } else {
             periodTimeEl.textContent = "-";
@@ -1344,7 +1545,7 @@ function updateRow(id, tz) {
     }
 }
 
-function handleTimeChange(val, timezone, slotIdx) {
+function handleTimeChange(val, timezone, slotIdx, timezoneId = null) {
     if (isRealtime) return;
     const date = new Date(val.replace(" ", "T"));
     if (isNaN(date.getTime())) {
@@ -1361,17 +1562,29 @@ function handleTimeChange(val, timezone, slotIdx) {
     if (timezone === "UTC") {
         globalTimes[slotIdx] = tempUTC;
     } else if (timezone === "CUSTOM") {
-        const row = document.querySelector(".dragging") || (document.activeElement?.closest ? document.activeElement.closest("tr") : null);
-        if (!row || !row.id) return;
-        const tzId = row.id.replace("tz-row-", "");
         const currentZones = getCurrentGroupZones();
-        const tz = currentZones.find(z => z.id === tzId);
+        let tz = null;
+
+        if (timezoneId) {
+            tz = currentZones.find(z => z.id === timezoneId) || null;
+        }
+        // Backward fallback: resolve from focused/dragging row if id wasn't provided.
+        if (!tz) {
+            const row = document.querySelector(".dragging") || (document.activeElement?.closest ? document.activeElement.closest("tr") : null);
+            const rowId = row?.id ? row.id.replace("tz-row-", "") : "";
+            if (rowId) tz = currentZones.find(z => z.id === rowId) || null;
+        }
         if (tz) {
             const offMs = getCustomOffsetMinutes(tz) * 60000;
             globalTimes[slotIdx] = new Date(tempUTC.getTime() - offMs);
+        } else {
+            return;
         }
     } else {
-        const offMs = getTimezoneOffset(timezone, tempUTC) * 60000;
+        const offMin = (ignoreDST && timezone !== "UTC")
+            ? getTimezoneOffset(timezone, globalTimes[0])
+            : getTimezoneOffset(timezone, tempUTC);
+        const offMs = offMin * 60000;
         globalTimes[slotIdx] = new Date(tempUTC.getTime() - offMs);
     }
     updateClocks();
@@ -1401,9 +1614,8 @@ function updateTZDropdown() {
 }
 
 function initSearchAndSelect() {
-    const input = document.getElementById("tz-search-input");
-    const results = document.getElementById("search-results");
     const quickSelect = document.getElementById("tz-quick-select");
+    if (!quickSelect) return;
 
     updateTZDropdown();
 
@@ -1412,7 +1624,7 @@ function initSearchAndSelect() {
             addTimezone({
                 id: "tz-" + Date.now(),
                 zone: "UTC",
-                name_ko: I18N_DATA.ko.utc_name || "표준시",
+                name_ko: I18N_DATA.ko.utc_name || "UTC",
                 name_en: I18N_DATA.en.utc_name || "UTC",
                 type: "standard"
             });
@@ -1424,27 +1636,25 @@ function initSearchAndSelect() {
         quickSelect.value = "";
     };
 
-    input.oninput = () => {
-        const v = input.value.trim().toLowerCase();
-        if (!v) { results.style.display = "none"; return; }
-        const m = TZ_DATABASE.filter(t =>
-            t.name.toLowerCase().includes(v) || t.city.toLowerCase().includes(v) ||
-            t.name_en.toLowerCase().includes(v) || t.city_en.toLowerCase().includes(v)
-        );
-        const sortedMatched = getSortedTZData(m);
-        results.innerHTML = "";
-        sortedMatched.forEach(tzData => results.appendChild(createTimezoneListItem(tzData)));
-        results.style.display = sortedMatched.length ? "block" : "none";
-    };
+    const showAllBtn = document.getElementById("show-all-tz");
+    if (showAllBtn) {
+        showAllBtn.onclick = () => {
+            const o = document.getElementById("full-tz-overlay");
+            const list = document.getElementById("full-tz-list");
+            if (!o || !list) return;
+            list.innerHTML = "";
+            getSortedTZData(TZ_DATABASE).forEach(tzData => list.appendChild(createTimezoneListItem(tzData, true)));
+            o.style.display = "flex";
+        };
+    }
 
-    document.getElementById("show-all-tz").onclick = () => {
-        const o = document.getElementById("full-tz-overlay");
-        const list = document.getElementById("full-tz-list");
-        list.innerHTML = "";
-        getSortedTZData(TZ_DATABASE).forEach(tzData => list.appendChild(createTimezoneListItem(tzData, true)));
-        o.style.display = "flex";
-    };
-    document.getElementById("close-overlay").onclick = () => document.getElementById("full-tz-overlay").style.display = "none";
+    const closeOverlayBtn = document.getElementById("close-overlay");
+    if (closeOverlayBtn) {
+        closeOverlayBtn.onclick = () => {
+            const overlay = document.getElementById("full-tz-overlay");
+            if (overlay) overlay.style.display = "none";
+        };
+    }
 }
 
 function addFromSearchWithData(zone) {
@@ -1458,8 +1668,6 @@ function addFromSearchWithData(zone) {
             type: "standard"
         });
     }
-    document.getElementById("tz-search-input").value = "";
-    document.getElementById("search-results").style.display = "none";
 }
 
 // function addFromSearch is now replaced by addFromSearchWithData
@@ -1498,37 +1706,147 @@ function saveOrder() {
     savePersistence();
 }
 
-function getCopyFieldText(row, key) {
+function getTimezoneRefById(id) {
+    if (!id) return null;
+    if (id === "utc") return getUTCRef();
+    const baseRef = getBaseTimezoneRef();
+    if (baseRef.id === id) return baseRef;
+    return getCurrentGroupZones().find(z => z.id === id) || null;
+}
+
+function buildTimezoneComputedSnapshot(id) {
+    const tz = getTimezoneRefById(id);
+    if (!tz) return null;
+
+    let zoneCodeMain = "";
+    let offsetStr = "";
+    const fixedDisplayOffsetMinutes = getFixedOffsetForDisplay(tz);
+
+    if (tz.type === "custom") {
+        zoneCodeMain = normalizeCustomAbbr(tz.abbr);
+        const offsetMin = getCustomOffsetMinutes(tz);
+        const sign = offsetMin >= 0 ? "+" : "-";
+        const absMin = Math.abs(offsetMin);
+        const absHour = Math.floor(absMin / 60);
+        const minPart = absMin % 60;
+        offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
+    } else {
+        zoneCodeMain = getBetterAbbr(tz.zone, globalTimes[0]);
+        if (Number.isFinite(fixedDisplayOffsetMinutes)) {
+            const sign = fixedDisplayOffsetMinutes >= 0 ? "+" : "-";
+            const absMin = Math.abs(fixedDisplayOffsetMinutes);
+            const absHour = Math.floor(absMin / 60);
+            const minPart = absMin % 60;
+            offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
+        } else {
+            const offF = new Intl.DateTimeFormat("en-US", { timeZone: tz.zone, timeZoneName: "longOffset" });
+            const partsArr = offF.formatToParts(globalTimes[0]);
+            const offVal = partsArr.find(p => p.type === "timeZoneName")?.value || "GMT+0";
+            const match = offVal.match(/[+-](\d{1,2}):?(\d{2})?/);
+            if (match) {
+                const sign = offVal.includes("+") ? "+" : "-";
+                offsetStr = `UTC${sign}${pad(match[1])}:${pad(match[2] || 0)}`;
+            } else {
+                offsetStr = "UTC+00:00";
+            }
+        }
+    }
+
+    const effectiveSlotCount = isRealtime ? 1 : slotCount;
+    const timeValues = [];
+    const timeDayValues = [];
+    for (let i = 0; i < effectiveSlotCount; i++) {
+        if (tz.type === "custom" || Number.isFinite(fixedDisplayOffsetMinutes)) {
+            const offsetMin = tz.type === "custom" ? getCustomOffsetMinutes(tz) : fixedDisplayOffsetMinutes;
+            const tMs = globalTimes[i].getTime() + (offsetMin * 60000);
+            const shifted = new Date(tMs);
+            const timeStr = `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+            const dayStr = I18N_DATA[currentLang].days[shifted.getUTCDay()];
+            timeValues.push(timeStr);
+            timeDayValues.push(`${timeStr} (${dayStr})`);
+            continue;
+        }
+        const f = new Intl.DateTimeFormat("en-US", {
+            timeZone: tz.zone,
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+            hour: "numeric",
+            minute: "numeric",
+            second: "numeric",
+            weekday: "short",
+            hour12: false
+        });
+        const parts = f.formatToParts(globalTimes[i]);
+        const get = (type) => parts.find(p => p.type === type)?.value || "";
+        const h = parseInt(get("hour"), 10);
+        const weekday = get("weekday");
+        const weekdayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+        const weekdayIdx = weekdayMap[weekday];
+        const timeStr = `${get("year")}-${pad(get("month"))}-${pad(get("day"))} ${pad(h === 24 ? 0 : h)}:${pad(get("minute"))}:${pad(get("second"))}`;
+        const dayStr = Number.isInteger(weekdayIdx) ? I18N_DATA[currentLang].days[weekdayIdx] : "";
+        timeValues.push(timeStr);
+        timeDayValues.push(dayStr ? `${timeStr} (${dayStr})` : timeStr);
+    }
+
+    let periodDaysText = "";
+    let periodTimeText = "";
+    if (effectiveSlotCount > 1 && timeValues.length > 1) {
+        const spanDays = getSignedInclusiveDaySpan(timeValues[0], timeValues[1]);
+        const spanTime = getSignedDurationDayHourMinute(timeValues[0], timeValues[1]);
+        periodDaysText = spanDays === null ? "" : `${spanDays}${t("unit_days_suffix")}`;
+        periodTimeText = spanTime === null ? "" : spanTime;
+    }
+
+    return {
+        timezone: zoneCodeMain,
+        region: getZoneDisplayName(tz),
+        offset: offsetStr,
+        timesWithDay: timeDayValues,
+        times: timeValues,
+        periodDays: periodDaysText,
+        periodTime: periodTimeText
+    };
+}
+
+function getCopyFieldText(snapshot, key) {
+    if (!snapshot) return "";
     if (key === "timezone") {
-        const zoneCodeRaw = (row.querySelector(".zone-code")?.textContent || "").trim();
+        const zoneCodeRaw = (snapshot.timezone || "").trim();
         if (!zoneCodeRaw) return "";
         return zoneCodeRaw.startsWith("[") ? zoneCodeRaw : `[${zoneCodeRaw}]`;
     }
 
     if (key === "region") {
-        return (row.querySelector(".zone-name")?.textContent || "").trim();
+        return (snapshot.region || "").trim();
     }
 
     if (key === "offset") {
-        const offsetText = (row.querySelector(".offset-text")?.textContent || "").trim();
+        const offsetText = (snapshot.offset || "").trim();
         if (!offsetText) return "";
         return offsetText.startsWith("[") ? offsetText : `[${offsetText}]`;
     }
 
+    if (key === "time_day") {
+        const times = Array.isArray(snapshot.timesWithDay) ? snapshot.timesWithDay.filter(Boolean) : [];
+        if (!times.length) return "";
+        return times.join(" ~ ");
+    }
+
     if (key === "time") {
-        const times = [...row.querySelectorAll(".time-input")].map(i => i.value.trim()).filter(Boolean);
+        const times = Array.isArray(snapshot.times) ? snapshot.times.filter(Boolean) : [];
         if (!times.length) return "";
         return times.join(" ~ ");
     }
 
     if (key === "period_days") {
-        const periodText = (row.querySelector(".period-days-text")?.textContent || "").trim();
+        const periodText = (snapshot.periodDays || "").trim();
         if (!periodText || periodText === "-") return "";
         return `[${periodText}]`;
     }
 
     if (key === "period_time") {
-        const periodTimeText = (row.querySelector(".period-time-text")?.textContent || "").trim();
+        const periodTimeText = (snapshot.periodTime || "").trim();
         if (!periodTimeText || periodTimeText === "-") return "";
         return `[${periodTimeText}]`;
     }
@@ -1536,20 +1854,26 @@ function getCopyFieldText(row, key) {
     return "";
 }
 
-function getRowCopyText(row) {
+function getRowCopyText(rowOrId) {
+    const rowId = typeof rowOrId === "string"
+        ? rowOrId
+        : String(rowOrId?.id || "").replace("tz-row-", "");
+    if (!rowId) return "";
+
+    const snapshot = buildTimezoneComputedSnapshot(rowId);
+    if (!snapshot) return "";
+
     const orderedParts = [];
     copyFormatOrder.forEach(key => {
         if (!copyFormatEnabled[key]) return;
-        const value = getCopyFieldText(row, key);
+        const value = getCopyFieldText(snapshot, key);
         if (value) orderedParts.push(value);
     });
     return orderedParts.join(" ").trim();
 }
 
 async function copyRow(id) {
-    const row = document.getElementById(`tz-row-${id}`);
-    if (!row) return;
-    const text = getRowCopyText(row);
+    const text = getRowCopyText(id);
     if (!text) return;
     try {
         await navigator.clipboard.writeText(text);
@@ -1561,7 +1885,9 @@ async function copyRow(id) {
 }
 
 async function copyAllTimezones() {
-    const lineArr = [...document.querySelectorAll(".time-row")].map(getRowCopyText).filter(Boolean);
+    const lineArr = [...document.querySelectorAll(".time-row")]
+        .map(row => getRowCopyText(String(row.id || "").replace("tz-row-", "")))
+        .filter(Boolean);
     if (!lineArr.length) return;
     try {
         await navigator.clipboard.writeText(lineArr.join("\n"));
@@ -1643,6 +1969,8 @@ function cloneTableForImageExport(tableEl) {
         inputEl.replaceWith(span);
     });
 
+    clone.querySelectorAll(".export-exclude, .move-col, .move-cell").forEach((node) => node.remove());
+
     return clone;
 }
 
@@ -1684,7 +2012,8 @@ function renderTimezoneTableFallbackDataUrl() {
     const table = document.querySelector("#timezone-section .data-table");
     if (!table) throw new Error("Table element not found");
 
-    const headerCells = [...table.querySelectorAll("#table-head th")];
+    const headerCells = [...table.querySelectorAll("#table-head th")]
+        .filter((th) => !th.classList.contains("export-exclude") && !th.classList.contains("move-col"));
     const bodyRows = [...table.querySelectorAll("#clocks-container tr.time-row")];
     if (!headerCells.length || !bodyRows.length) {
         throw new Error("No table data to render");
@@ -1699,14 +2028,16 @@ function renderTimezoneTableFallbackDataUrl() {
     const headerHeight = Math.max(34, Math.ceil(headerCells[0].getBoundingClientRect().height) || 40);
     const rowHeights = bodyRows.map((row) => Math.max(34, Math.ceil(row.getBoundingClientRect().height) || 40));
     const tableHeight = headerHeight + rowHeights.reduce((acc, h) => acc + h, 0);
+    const targetWidth = TABLE_IMAGE_EXPORT_WIDTH;
+    const renderRatio = targetWidth / Math.max(1, tableWidth);
+    const targetHeight = Math.max(1, Math.round(tableHeight * renderRatio));
 
-    const scale = Math.max(1, Math.floor(window.devicePixelRatio || 1));
     const canvas = document.createElement("canvas");
-    canvas.width = tableWidth * scale;
-    canvas.height = tableHeight * scale;
+    canvas.width = targetWidth;
+    canvas.height = targetHeight;
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Canvas context unavailable");
-    ctx.scale(scale, scale);
+    ctx.scale(renderRatio, renderRatio);
 
     const rootStyle = getComputedStyle(document.documentElement);
     const bodyStyle = getComputedStyle(document.body);
@@ -1737,18 +2068,18 @@ function renderTimezoneTableFallbackDataUrl() {
         ctx.restore();
     };
 
-    const isCenterHeader = (idx) => true;
-    const isCenterBodyByHeader = (headerText) => {
-        const normalized = (headerText || "").toLowerCase();
-        return (
-            normalized.includes("utc") ||
-            normalized.includes("기간") ||
-            normalized.includes("period") ||
-            normalized.includes("copy") ||
-            normalized.includes("remove") ||
-            normalized.includes("복사") ||
-            normalized.includes("제거")
-        );
+    const isCenterHeader = () => true;
+    const isCenterBodyCell = (cell) => {
+        if (!cell) return false;
+        if (
+            cell.classList.contains("move-cell") ||
+            cell.classList.contains("timezone-cell") ||
+            cell.classList.contains("period-days-cell") ||
+            cell.classList.contains("period-time-cell")
+        ) {
+            return true;
+        }
+        return !!cell.querySelector(".offset-text");
     };
 
     let y = 0;
@@ -1786,13 +2117,13 @@ function renderTimezoneTableFallbackDataUrl() {
         ctx.stroke();
 
         let rowX = 0;
-        const cells = [...row.children];
+        const cells = [...row.children]
+            .filter((td) => !td.classList.contains("export-exclude") && !td.classList.contains("move-cell"));
         for (let c = 0; c < colCount; c++) {
             const w = measuredColWidths[c];
             const cell = cells[c];
             const text = extractTableCellText(cell);
-            const headText = (headerCells[c]?.textContent || "").trim();
-            const center = isCenterBodyByHeader(headText);
+            const center = isCenterBodyCell(cell);
             drawCellText(text, rowX, y, w, h, center ? "center" : "left", textColor, "13px Inter");
             rowX += w;
         }
@@ -1819,6 +2150,8 @@ async function renderTimezoneTableToPngDataUrl() {
     const rect = clonedTable.getBoundingClientRect();
     const width = Math.max(1, Math.ceil(rect.width));
     const height = Math.max(1, Math.ceil(rect.height));
+    const targetWidth = TABLE_IMAGE_EXPORT_WIDTH;
+    const targetHeight = Math.max(1, Math.round((height * targetWidth) / width));
     const tableMarkup = new XMLSerializer().serializeToString(clonedTable);
     measureHost.remove();
 
@@ -1861,13 +2194,13 @@ async function renderTimezoneTableToPngDataUrl() {
         }
         const img = await loadImageElement(svgUrl);
         const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
         const ctx = canvas.getContext("2d");
         if (!ctx) throw new Error("Canvas context unavailable");
         ctx.fillStyle = getComputedStyle(document.body).backgroundColor || "#0f172a";
-        ctx.fillRect(0, 0, width, height);
-        ctx.drawImage(img, 0, 0);
+        ctx.fillRect(0, 0, targetWidth, targetHeight);
+        ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
         return canvas.toDataURL("image/png");
     } finally {
         URL.revokeObjectURL(svgUrl);
@@ -2043,14 +2376,14 @@ async function copyText(elementId, isInput = false) {
     }
 }
 
-function savePersistence() {
+function getPersistenceSnapshot() {
     currentMainTab = sanitizeMainTab(currentMainTab);
     if (currentMainTab === "live" || currentMainTab === "fixed") {
         activeGroupIdByMainTab[currentMainTab] = activeGroupId;
     }
     normalizeGroupTabState();
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+    return {
         groups,
         activeGroupId,
         currentMainTab,
@@ -2058,14 +2391,130 @@ function savePersistence() {
         slotCount,
         baseTimezoneId,
         showTimeAdjust,
+        ignoreDST,
         showCopyFormat,
+        displayFormatOrder: sanitizeCopyFormatOrder(displayFormatOrder),
+        displayFormatEnabled: sanitizeCopyFormatEnabled(displayFormatEnabled, "display"),
         copyFormatOrder: sanitizeCopyFormatOrder(copyFormatOrder),
-        copyFormatEnabled: sanitizeCopyFormatEnabled(copyFormatEnabled)
-    }));
+        copyFormatEnabled: sanitizeCopyFormatEnabled(copyFormatEnabled, "copy")
+    };
+}
+
+function getSettingsExportFileName() {
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    return `GlobalTimeViewer_settings_${stamp}.json`;
+}
+
+function exportSettingsToJSON() {
+    try {
+        const exportPayload = {
+            app: "GlobalTimeViewer",
+            formatVersion: 1,
+            version: VERSION,
+            exportedAt: new Date().toISOString(),
+            data: getPersistenceSnapshot(),
+            preferences: {
+                theme: sanitizeTheme(currentTheme),
+                language: I18N_DATA[currentLang] ? currentLang : "ko"
+            }
+        };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = getSettingsExportFileName();
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast(t("toast_settings_export_success"));
+    } catch (err) {
+        console.error("exportSettingsToJSON failed:", err);
+        showToast(t("toast_settings_export_failed"));
+    }
+}
+
+function applyImportedSettings(importedRoot) {
+    const payload = (importedRoot && typeof importedRoot === "object" && importedRoot.data && typeof importedRoot.data === "object")
+        ? importedRoot.data
+        : importedRoot;
+    if (!payload || typeof payload !== "object") {
+        throw new Error("Invalid settings payload");
+    }
+    if (!Array.isArray(payload.groups)) {
+        throw new Error("Invalid settings payload: groups is required");
+    }
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+
+    const pref = (importedRoot && typeof importedRoot === "object" && importedRoot.preferences && typeof importedRoot.preferences === "object")
+        ? importedRoot.preferences
+        : importedRoot;
+
+    if (pref && typeof pref === "object") {
+        if (typeof pref.theme === "string") {
+            localStorage.setItem(THEME_STORAGE_KEY, sanitizeTheme(pref.theme));
+        }
+        if (typeof pref.language === "string" && I18N_DATA[pref.language]) {
+            localStorage.setItem(LANG_STORAGE_KEY, pref.language);
+        }
+    }
+
+    const nextLang = localStorage.getItem(LANG_STORAGE_KEY) || "ko";
+    currentLang = I18N_DATA[nextLang] ? nextLang : "ko";
+    loadPersistence();
+    applyTheme(loadThemePreference(), false);
+    applyTranslations();
+    applyVersionBranding();
+
+    const langSelect = document.getElementById("lang-select");
+    if (langSelect) langSelect.value = currentLang;
+
+    const themeSelect = document.getElementById("theme-select");
+    if (themeSelect) themeSelect.value = currentTheme;
+
+    updateTZDropdown();
+    refreshSelectWidths();
+    switchMainTab(currentMainTab);
+}
+
+async function handleSettingsImportFile(event) {
+    const input = event?.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+
+    try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw);
+        applyImportedSettings(parsed);
+        showToast(t("toast_settings_import_success"));
+    } catch (err) {
+        console.error("handleSettingsImportFile failed:", err);
+        showToast(t("toast_settings_import_failed"));
+    } finally {
+        if (input) input.value = "";
+    }
+}
+
+function savePersistence() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(getPersistenceSnapshot()));
+}
+
+function resetAllSettings() {
+    if (!confirm(t("confirm_reset_all_settings"))) return;
+
+    const keysToRemove = [STORAGE_KEY, THEME_STORAGE_KEY, LANG_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+    location.reload();
 }
 
 function getDefaultGroups() {
-    return [{ name: t("default_group_name"), zones: [{ id: "seoul", name_ko: "대한민국 - 서울", name_en: "South Korea - Seoul", zone: "Asia/Seoul", type: "standard" }] }];
+    return [{
+        name: t("default_group_name"),
+        zones: []
+    }];
 }
 
 function sanitizeTimezoneZone(zone) {
@@ -2106,10 +2555,9 @@ function sanitizeGroup(group, idx) {
 }
 
 function loadPersistence() {
-    const legacyKeys = ["GTV_v310_Data", "GTV_v300_Data", "GTV_v200_Data", "GTV_v170_Data", "GTV_v160_Data", "GTV_v150_Data", "GTV_v140_Data"];
     let s = localStorage.getItem(STORAGE_KEY);
     if (!s) {
-        for (const key of legacyKeys) {
+        for (const key of LEGACY_STORAGE_KEYS) {
             const legacy = localStorage.getItem(key);
             if (legacy) {
                 s = legacy;
@@ -2126,9 +2574,12 @@ function loadPersistence() {
         slotCount = 1;
         baseTimezoneId = "utc";
         showTimeAdjust = false;
+        ignoreDST = false;
         showCopyFormat = false;
+        displayFormatOrder = [...COPY_FORMAT_KEYS];
+        displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
         copyFormatOrder = [...COPY_FORMAT_KEYS];
-        copyFormatEnabled = sanitizeCopyFormatEnabled(null);
+        copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
         isRealtime = true;
         return;
     }
@@ -2158,9 +2609,31 @@ function loadPersistence() {
 
         baseTimezoneId = (typeof d?.baseTimezoneId === "string" && d.baseTimezoneId.trim()) ? d.baseTimezoneId : "utc";
         showTimeAdjust = !!d?.showTimeAdjust;
+        ignoreDST = !!d?.ignoreDST;
         showCopyFormat = !!d?.showCopyFormat;
-        copyFormatOrder = sanitizeCopyFormatOrder(d?.copyFormatOrder);
-        copyFormatEnabled = sanitizeCopyFormatEnabled(d?.copyFormatEnabled);
+        const hasDisplayOrder = Array.isArray(d?.displayFormatOrder);
+        const hasDisplayEnabled = !!(d?.displayFormatEnabled && typeof d.displayFormatEnabled === "object");
+        const rawDisplayOrder = hasDisplayOrder ? d.displayFormatOrder : d?.copyFormatOrder;
+        const rawDisplayEnabled = hasDisplayEnabled ? d.displayFormatEnabled : d?.copyFormatEnabled;
+        const needsDisplayTimeLegacyMap = !Array.isArray(rawDisplayOrder) || !rawDisplayOrder.includes("time_day");
+        const displayLegacyTimeMap = needsDisplayTimeLegacyMap ? "time_day" : null;
+
+        const fallbackCopyOrder = sanitizeCopyFormatOrder(d?.copyFormatOrder);
+        const fallbackCopyEnabled = sanitizeCopyFormatEnabled(d?.copyFormatEnabled, "copy", "time");
+
+        displayFormatOrder = sanitizeCopyFormatOrder(
+            hasDisplayOrder ? d.displayFormatOrder : d?.copyFormatOrder,
+            displayLegacyTimeMap
+        );
+        displayFormatEnabled = sanitizeCopyFormatEnabled(
+            rawDisplayEnabled,
+            "display",
+            (rawDisplayEnabled && typeof rawDisplayEnabled === "object" && Object.prototype.hasOwnProperty.call(rawDisplayEnabled, "time_day"))
+                ? null
+                : displayLegacyTimeMap
+        );
+        copyFormatOrder = fallbackCopyOrder;
+        copyFormatEnabled = fallbackCopyEnabled;
         normalizeGroupTabState();
         if (currentMainTab === "live" || currentMainTab === "fixed") {
             activeGroupId = activeGroupIdByMainTab[currentMainTab];
@@ -2176,9 +2649,12 @@ function loadPersistence() {
         slotCount = 1;
         baseTimezoneId = "utc";
         showTimeAdjust = false;
+        ignoreDST = false;
         showCopyFormat = false;
+        displayFormatOrder = [...COPY_FORMAT_KEYS];
+        displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
         copyFormatOrder = [...COPY_FORMAT_KEYS];
-        copyFormatEnabled = sanitizeCopyFormatEnabled(null);
+        copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
         isRealtime = true;
         savePersistence();
     }

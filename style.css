@@ -171,6 +171,76 @@ body {
     color: var(--accent);
 }
 
+/* Unified emphasized button style (based on group add '+') */
+.sm-btn,
+.icon-btn,
+.off-btn,
+#timezone-section .drag-handle,
+.group-del-btn,
+.group-edit-btn {
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.12));
+    border-color: rgba(56, 189, 248, 0.55);
+    color: var(--accent);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(56, 189, 248, 0.12);
+    font-weight: 700;
+}
+
+.sm-btn:hover,
+.icon-btn:hover,
+.off-btn:hover,
+#timezone-section .drag-handle:hover,
+.group-del-btn:hover,
+.group-edit-btn:hover {
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.35), rgba(56, 189, 248, 0.2));
+    border-color: rgba(56, 189, 248, 0.8);
+    color: #e0f2fe;
+}
+
+:root[data-theme="light"] .sm-btn,
+:root[data-theme="light"] .icon-btn,
+:root[data-theme="light"] .off-btn,
+:root[data-theme="light"] #timezone-section .drag-handle,
+:root[data-theme="light"] .group-del-btn,
+:root[data-theme="light"] .group-edit-btn {
+    background: linear-gradient(180deg, rgba(2, 132, 199, 0.18), rgba(2, 132, 199, 0.1));
+    border-color: rgba(2, 132, 199, 0.45);
+    color: #075985;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 0 0 1px rgba(2, 132, 199, 0.1);
+}
+
+/* Deletion actions: keep unified style, add subtle red risk cue */
+.sm-btn.danger,
+.group-del-btn {
+    background: linear-gradient(180deg, rgba(239, 68, 68, 0.22), rgba(239, 68, 68, 0.12));
+    border-color: rgba(239, 68, 68, 0.58);
+    color: #fecaca;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(239, 68, 68, 0.14);
+}
+
+.sm-btn.danger:hover,
+.group-del-btn:hover {
+    background: linear-gradient(180deg, rgba(239, 68, 68, 0.32), rgba(239, 68, 68, 0.18));
+    border-color: rgba(239, 68, 68, 0.82);
+    color: #fee2e2;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px rgba(239, 68, 68, 0.22);
+}
+
+:root[data-theme="light"] .sm-btn.danger,
+:root[data-theme="light"] .group-del-btn {
+    background: linear-gradient(180deg, rgba(220, 38, 38, 0.14), rgba(220, 38, 38, 0.08));
+    border-color: rgba(220, 38, 38, 0.58);
+    color: #991b1b;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 0 0 1px rgba(220, 38, 38, 0.14);
+}
+
+:root[data-theme="light"] .sm-btn.danger:hover,
+:root[data-theme="light"] .group-del-btn:hover {
+    background: linear-gradient(180deg, rgba(220, 38, 38, 0.2), rgba(220, 38, 38, 0.12));
+    border-color: rgba(220, 38, 38, 0.8);
+    color: #7f1d1d;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45), 0 0 0 1px rgba(220, 38, 38, 0.22);
+}
+
 .form-select {
     padding-right: 34px;
 }
@@ -198,35 +268,11 @@ input[type=number] {
     appearance: none;
 }
 
-.sm-btn.danger:hover {
-    background: rgba(239, 68, 68, 0.1);
-    border-color: var(--danger);
-    color: var(--danger);
-}
-
 /* Custom Select Dropdown Style */
 .form-select option {
     background-color: var(--select-option-bg);
     color: var(--select-option-text);
     padding-right: 14px;
-}
-
-.search-dropdown {
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    max-height: 260px;
-    overflow-y: auto;
-    backdrop-filter: blur(6px);
-}
-
-#search-results .tz-item {
-    border-radius: 0;
-    padding: 10px 12px;
-    border-bottom: 1px solid var(--border);
-}
-
-#search-results .tz-item:last-child {
-    border-bottom: none;
 }
 
 /* Main Content Wrapper */
@@ -261,23 +307,56 @@ input[type=number] {
 }
 
 .control-row-options {
-    border-top: 1px solid var(--border);
-    padding-top: 10px;
+    border-top: 2px solid rgba(148, 163, 184, 0.45);
+    box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.16);
+    padding-top: 12px;
 }
 
 .control-row-options .option-toggle-group {
-    padding-right: 14px;
-    margin-right: 2px;
+    position: relative;
+    padding-right: 22px;
+    margin-right: 6px;
 }
 
 .control-row-options .option-toggle-group:not(:last-of-type) {
-    border-right: 1px solid var(--border);
+    border-right: none;
+}
+
+.control-row-options .option-toggle-group:not(:last-of-type)::after {
+    content: "|";
+    position: absolute;
+    right: 6px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-weight: 700;
+    opacity: 0.9;
+    user-select: none;
 }
 
 .control-group {
     display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.control-row-main .control-group-divider {
+    position: relative;
+    padding-left: 24px;
+    margin-left: 6px;
+}
+
+.control-row-main .control-group-divider::before {
+    content: "|";
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-dim);
+    font-weight: 700;
+    font-size: 16px;
+    opacity: 0.9;
+    user-select: none;
 }
 
 .control-group input[type="checkbox"] {
@@ -306,8 +385,9 @@ input[type=number] {
 
 .time-adjust-row {
     width: 100%;
-    border-top: 1px solid var(--border);
-    padding-top: 10px;
+    border-top: 2px solid rgba(148, 163, 184, 0.45);
+    box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.16);
+    padding-top: 12px;
     margin-top: -2px;
 }
 
@@ -323,8 +403,25 @@ input[type=number] {
     padding-top: 10px;
     margin-top: -2px;
     display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.copy-format-line {
+    width: 100%;
+    display: flex;
     align-items: center;
     gap: 10px;
+}
+
+.copy-format-title {
+    flex: 0 0 120px;
+    width: 120px;
+    min-width: 120px;
+    font-size: 16px;
+    color: var(--text-dim);
+    font-weight: 700;
+    white-space: nowrap;
 }
 
 .copy-format-list {
@@ -341,6 +438,8 @@ input[type=number] {
     display: inline-flex;
     align-items: center;
     gap: 8px;
+    width: 180px;
+    min-width: 180px;
     padding: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 6px;
@@ -356,9 +455,19 @@ input[type=number] {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    width: 100%;
+    min-width: 0;
     font-size: 16px;
     color: var(--text);
     cursor: pointer;
+}
+
+.copy-format-item-label span {
+    display: inline-block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .copy-format-drag {
@@ -387,6 +496,8 @@ input[type=number] {
 .time-adjust-set .sm-btn {
     margin-left: 2px;
     margin-right: 2px;
+    text-align: left;
+    justify-content: flex-start;
 }
 
 .time-adjust-divider {
@@ -412,7 +523,8 @@ input[type=number] {
     min-width: 200px;
     padding-left: 12px;
     padding-right: 12px;
-    text-align: center;
+    text-align: left;
+    justify-content: flex-start;
     white-space: nowrap;
 }
 
@@ -450,33 +562,37 @@ input[type=number] {
 }
 
 .group-tab.active {
-    background: var(--accent-glow);
-    color: var(--accent);
-    border-color: var(--accent);
+    background: rgba(56, 189, 248, 0.12);
+    color: var(--text);
+    border-color: rgba(56, 189, 248, 0.35);
     font-weight: 600;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="light"] .group-tab.active {
+    background: rgba(2, 132, 199, 0.08);
+    color: var(--text);
+    border-color: rgba(2, 132, 199, 0.28);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 
 .group-del-btn,
 .group-edit-btn {
-    background: none;
-    border: none;
-    color: inherit;
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
-    padding: 2px;
-    opacity: 0.6;
-    transition: opacity 0.2s;
+    padding: 3px 6px;
+    border-radius: 4px;
+    opacity: 0.95;
+    transition: all 0.2s;
 }
 
 .group-del-btn:hover {
     opacity: 1;
-    color: var(--danger);
 }
 
 .group-edit-btn:hover {
     opacity: 1;
-    color: var(--accent);
 }
 
 /* Table Section - Fill Width & Action Right */
@@ -548,14 +664,25 @@ input[type=number] {
     text-align: left;
 }
 
-.dynamic-cell {
-    padding-left: 2px !important;
-    padding-right: 2px !important;
+.data-table th.move-col,
+.time-row td.move-cell {
+    text-align: center !important;
+    width: 70px;
+    min-width: 70px;
+    max-width: 70px;
+    padding-left: 4px !important;
+    padding-right: 4px !important;
 }
 
-.time-row td.dynamic-cell:nth-child(even) {
+.time-row td.timezone-cell,
+.time-row td.copy-cell,
+.time-row td.remove-cell {
+    text-align: center !important;
+}
+
+.dynamic-cell {
     padding-left: 15px !important;
-    /* Keep first dynamic cell aligned to left column */
+    padding-right: 2px !important;
 }
 
 .time-row td:last-child {
@@ -589,31 +716,23 @@ input[type=number] {
 
 .drag-handle,
 .drag-spacer {
-    width: 18px;
-    height: 18px;
+    width: 40px;
+    height: 34px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
 }
 
 .drag-handle {
-    border: 1px solid transparent;
-    border-radius: 3px;
-    background: transparent;
-    color: var(--text-dim);
+    border-radius: 4px;
     cursor: grab;
-    line-height: 1;
+    line-height: 1.2;
     padding: 0;
+    font-size: 16px;
 }
 
 .drag-handle:active {
     cursor: grabbing;
-}
-
-.drag-handle:hover {
-    color: var(--accent);
-    border-color: var(--border);
-    background: rgba(56, 189, 248, 0.1);
 }
 
 .dragging {
@@ -709,7 +828,7 @@ input[type=number] {
 }
 
 .period-time-cell {
-    min-width: 100px;
+    min-width: 170px;
     padding-left: 2px !important;
     padding-right: 2px !important;
     text-align: center;
@@ -724,6 +843,7 @@ input[type=number] {
     font-size: 16px;
     color: var(--accent);
     font-weight: 700;
+    white-space: nowrap;
 }
 
 .offset-text {
