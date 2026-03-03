@@ -4,16 +4,19 @@ let slotCount = 1;
 let uiScale = 1.0;
 let showTimeAdjust = false;
 let showCopyFormat = false;
-let ignoreDST = false;
-const COPY_FORMAT_KEYS = ["timezone", "region", "offset", "time_day", "time", "period_days", "period_time"];
+let ignoreDST = true;
+const COPY_FORMAT_KEYS = ["timezone", "region", "offset", "time", "period_days", "period_time"];
+const TIME_PART_KEYS = ["dn", "date", "time", "weekday"];
 const PERIOD_RESULT_IDS = new Set(["period-res", "period-hour-res", "period-min-res", "period-sec-res"]);
 const MAIN_TABS = ["live", "fixed", "calc"];
+const MIN_TIME_ADJUST_DAY_STEP = 1;
+const MAX_TIME_ADJUST_DAY_STEP = 36500;
+const DEFAULT_TIME_ADJUST_DAY_STEP = 1;
 const DEFAULT_DISPLAY_FORMAT_ENABLED = {
     timezone: true,
     region: true,
     offset: true,
-    time_day: true,
-    time: false,
+    time: true,
     period_days: false,
     period_time: true
 };
@@ -21,18 +24,32 @@ const DEFAULT_COPY_FORMAT_ENABLED = {
     timezone: true,
     region: true,
     offset: true,
-    time_day: false,
     time: true,
     period_days: false,
     period_time: true
+};
+const DEFAULT_DISPLAY_TIME_PARTS_ENABLED = {
+    dn: true,
+    date: true,
+    time: true,
+    weekday: true
+};
+const DEFAULT_COPY_TIME_PARTS_ENABLED = {
+    dn: false,
+    date: true,
+    time: true,
+    weekday: false
 };
 let displayFormatOrder = [...COPY_FORMAT_KEYS];
 let displayFormatEnabled = { ...DEFAULT_DISPLAY_FORMAT_ENABLED };
 let copyFormatOrder = [...COPY_FORMAT_KEYS];
 let copyFormatEnabled = { ...DEFAULT_COPY_FORMAT_ENABLED };
+let displayTimePartsEnabled = { ...DEFAULT_DISPLAY_TIME_PARTS_ENABLED };
+let copyTimePartsEnabled = { ...DEFAULT_COPY_TIME_PARTS_ENABLED };
+let timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
 let currentMainTab = "live";
 let activeGroupIdByMainTab = { live: 0, fixed: 0 };
-const VERSION = "3.2.4";
+const VERSION = "3.2.8";
 const STORAGE_KEY = "GTV_v323_Data";
 const THEME_STORAGE_KEY = "GTV_Theme";
 const LANG_STORAGE_KEY = "GTV_Lang";
@@ -41,6 +58,8 @@ const THEME_LIST = ["dark", "light"];
 const TABLE_IMAGE_EXPORT_WIDTH = 1920;
 let currentTheme = "dark";
 const TIMEZONE_VALIDATION_CACHE = new Map();
+let canUseForeignObjectRenderer = null;
+let timePartsOutsideHandlerBound = false;
 
 function applyVersionBranding() {
     const titleText = `Global Time v${VERSION}`;
@@ -188,12 +207,23 @@ function getDefaultFormatEnabled(mode = "display") {
     return mode === "copy" ? { ...DEFAULT_COPY_FORMAT_ENABLED } : { ...DEFAULT_DISPLAY_FORMAT_ENABLED };
 }
 
-function sanitizeCopyFormatOrder(order, legacyTimeTo = null) {
+function getDefaultTimePartsEnabled(mode = "display") {
+    return mode === "copy" ? { ...DEFAULT_COPY_TIME_PARTS_ENABLED } : { ...DEFAULT_DISPLAY_TIME_PARTS_ENABLED };
+}
+
+function normalizeCopyFormatKey(rawKey) {
+    let normalizedKey = rawKey === "period" ? "period_days" : rawKey;
+    if (normalizedKey === "time_day" || normalizedKey === "date_day" || normalizedKey === "date") {
+        normalizedKey = "time";
+    }
+    return normalizedKey;
+}
+
+function sanitizeCopyFormatOrder(order) {
     const safeOrder = [];
     if (Array.isArray(order)) {
         order.forEach(key => {
-            let normalizedKey = key === "period" ? "period_days" : key;
-            if (normalizedKey === "time" && legacyTimeTo === "time_day") normalizedKey = "time_day";
+            const normalizedKey = normalizeCopyFormatKey(key);
             if (COPY_FORMAT_KEYS.includes(normalizedKey) && !safeOrder.includes(normalizedKey)) safeOrder.push(normalizedKey);
         });
     }
@@ -203,7 +233,7 @@ function sanitizeCopyFormatOrder(order, legacyTimeTo = null) {
     return safeOrder;
 }
 
-function sanitizeCopyFormatEnabled(enabled, mode = "display", legacyTimeTo = null) {
+function sanitizeCopyFormatEnabled(enabled, mode = "display") {
     const safe = getDefaultFormatEnabled(mode);
     COPY_FORMAT_KEYS.forEach(key => {
         if (enabled && typeof enabled === "object") {
@@ -211,17 +241,35 @@ function sanitizeCopyFormatEnabled(enabled, mode = "display", legacyTimeTo = nul
                 safe[key] = !!enabled[key];
                 return;
             }
+            if (key === "time") {
+                const hasLegacyTime = !!enabled.time_day || !!enabled.date_day || !!enabled.date;
+                if (hasLegacyTime) {
+                    safe[key] = true;
+                    return;
+                }
+            }
             if (key === "period_days" && Object.prototype.hasOwnProperty.call(enabled, "period")) {
                 safe[key] = !!enabled.period;
-                return;
-            }
-            if (legacyTimeTo && key === legacyTimeTo && Object.prototype.hasOwnProperty.call(enabled, "time")) {
-                safe[key] = !!enabled.time;
                 return;
             }
         }
     });
     return safe;
+}
+
+function sanitizeTimePartsEnabled(parts, mode = "display") {
+    const safe = getDefaultTimePartsEnabled(mode);
+    if (!parts || typeof parts !== "object") return safe;
+    TIME_PART_KEYS.forEach((key) => {
+        if (Object.prototype.hasOwnProperty.call(parts, key)) {
+            safe[key] = !!parts[key];
+        }
+    });
+    return safe;
+}
+
+function deriveTimePartsFromLegacyEnabled(legacyEnabled, mode = "display") {
+    return sanitizeTimePartsEnabled(null, mode);
 }
 
 function sanitizeTheme(theme) {
@@ -352,6 +400,7 @@ function initUI() {
         displayFormatResetBtn.onclick = () => {
             displayFormatOrder = [...COPY_FORMAT_KEYS];
             displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
+            displayTimePartsEnabled = sanitizeTimePartsEnabled(null, "display");
             renderCopyFormatControls();
             renderList();
             savePersistence();
@@ -363,6 +412,7 @@ function initUI() {
         copyFormatResetBtn.onclick = () => {
             copyFormatOrder = [...COPY_FORMAT_KEYS];
             copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
+            copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
             renderCopyFormatControls();
             savePersistence();
         };
@@ -462,6 +512,13 @@ function initUI() {
         if (!target.closest(".drag-handle, .copy-format-drag")) {
             e.preventDefault();
         }
+    });
+
+    document.querySelectorAll(".info-tip").forEach((tip) => {
+        tip.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+        });
     });
 
     renderBaseTimeSelect();
@@ -640,6 +697,75 @@ function createTimeAdjustDivider() {
     return divider;
 }
 
+function sanitizeTimeAdjustDayStep(value) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return DEFAULT_TIME_ADJUST_DAY_STEP;
+    return Math.min(MAX_TIME_ADJUST_DAY_STEP, Math.max(MIN_TIME_ADJUST_DAY_STEP, parsed));
+}
+
+function getTimeAdjustDayStep(slotIdx) {
+    return sanitizeTimeAdjustDayStep(timeAdjustDayStepBySlot[slotIdx]);
+}
+
+function setTimeAdjustDayStep(slotIdx, value) {
+    timeAdjustDayStepBySlot[slotIdx] = sanitizeTimeAdjustDayStep(value);
+    return timeAdjustDayStepBySlot[slotIdx];
+}
+
+function getTimeAdjustCustomDayLabel(direction, dayStep) {
+    const sign = direction < 0 ? "-" : "+";
+    return `${sign}${dayStep}${t("unit_days_short")}`;
+}
+
+function createTimeAdjustCustomDaysControl(slotIdx) {
+    const wrap = document.createElement("div");
+    wrap.className = "time-adjust-custom-group";
+
+    const label = document.createElement("span");
+    label.className = "time-adjust-custom-label";
+    label.textContent = t("label_custom_days");
+
+    const dayInput = document.createElement("input");
+    dayInput.type = "number";
+    dayInput.className = "form-input time-adjust-days-input";
+    dayInput.min = String(MIN_TIME_ADJUST_DAY_STEP);
+    dayInput.step = "1";
+    dayInput.inputMode = "numeric";
+    dayInput.value = String(getTimeAdjustDayStep(slotIdx));
+
+    const minusBtn = document.createElement("button");
+    minusBtn.type = "button";
+    minusBtn.className = "sm-btn time-adjust-custom-btn";
+    minusBtn.textContent = "-";
+    minusBtn.addEventListener("click", () => applyTimeAdjustAction(slotIdx, "minus_custom_days"));
+
+    const plusBtn = document.createElement("button");
+    plusBtn.type = "button";
+    plusBtn.className = "sm-btn time-adjust-custom-btn";
+    plusBtn.textContent = "+";
+    plusBtn.addEventListener("click", () => applyTimeAdjustAction(slotIdx, "plus_custom_days"));
+
+    const syncInputAndLabel = () => {
+        const normalized = setTimeAdjustDayStep(slotIdx, dayInput.value);
+        dayInput.value = String(normalized);
+        minusBtn.title = getTimeAdjustCustomDayLabel(-1, normalized);
+        plusBtn.title = getTimeAdjustCustomDayLabel(1, normalized);
+        minusBtn.setAttribute("aria-label", minusBtn.title);
+        plusBtn.setAttribute("aria-label", plusBtn.title);
+    };
+
+    dayInput.addEventListener("input", syncInputAndLabel);
+    dayInput.addEventListener("change", syncInputAndLabel);
+    dayInput.addEventListener("blur", syncInputAndLabel);
+    syncInputAndLabel();
+
+    wrap.appendChild(label);
+    wrap.appendChild(minusBtn);
+    wrap.appendChild(dayInput);
+    wrap.appendChild(plusBtn);
+    return wrap;
+}
+
 function renderTimeAdjustSet(slotIdx, enableSyncButton = false) {
     const set = document.createElement("div");
     set.className = "time-adjust-set";
@@ -682,6 +808,12 @@ function renderTimeAdjustSet(slotIdx, enableSyncButton = false) {
         }
     });
 
+    set.appendChild(createTimeAdjustDivider());
+    set.appendChild(createTimeAdjustActionButton("btn_minus_four_weeks", slotIdx, "minus_four_weeks"));
+    set.appendChild(createTimeAdjustActionButton("btn_plus_four_weeks", slotIdx, "plus_four_weeks"));
+    set.appendChild(createTimeAdjustDivider());
+    set.appendChild(createTimeAdjustCustomDaysControl(slotIdx));
+
     return set;
 }
 
@@ -713,7 +845,6 @@ function getCopyFieldLabel(key) {
         timezone: "copy_field_timezone",
         region: "copy_field_region",
         offset: "copy_field_offset",
-        time_day: "copy_field_time_day",
         time: "copy_field_time",
         period_days: "copy_field_period",
         period_time: "copy_field_period_time"
@@ -721,8 +852,51 @@ function getCopyFieldLabel(key) {
     return t(keyMap[key] || key);
 }
 
-function getCopyFormatDropTarget(container, x) {
+function getTimePartLabel(partKey) {
+    const map = {
+        dn: "copy_time_part_dn",
+        date: "copy_time_part_date",
+        time: "copy_time_part_time",
+        weekday: "copy_time_part_weekday"
+    };
+    return t(map[partKey] || partKey);
+}
+
+function closeAllTimePartsMenus() {
+    document.querySelectorAll(".time-parts-dropdown.open").forEach((el) => {
+        el.classList.remove("open");
+    });
+}
+
+function bindTimePartsOutsideClickHandler() {
+    if (timePartsOutsideHandlerBound) return;
+    document.addEventListener("click", (e) => {
+        const target = e.target;
+        if (!(target instanceof Element)) return;
+        if (target.closest(".time-parts-dropdown")) return;
+        closeAllTimePartsMenus();
+    });
+    timePartsOutsideHandlerBound = true;
+}
+
+function getCopyFormatDropTarget(container, x, y = null) {
     const draggableItems = [...container.querySelectorAll(".copy-format-item:not(.dragging)")];
+    if (!draggableItems.length) return null;
+
+    if (typeof y === "number") {
+        for (const child of draggableItems) {
+            const box = child.getBoundingClientRect();
+            const halfY = box.top + (box.height / 2);
+            const halfX = box.left + (box.width / 2);
+            const inSameRow = y >= box.top && y <= box.bottom;
+
+            if (y < halfY || (inSameRow && x < halfX)) {
+                return child;
+            }
+        }
+        return null;
+    }
+
     return draggableItems.reduce((closest, child) => {
         const box = child.getBoundingClientRect();
         const offset = x - box.left - box.width / 2;
@@ -732,9 +906,10 @@ function getCopyFormatDropTarget(container, x) {
 }
 
 function renderFormatControlList(list, order, enabled, options = {}) {
-    const { onToggle, onReorder } = options;
+    const { onToggle, onReorder, timePartsEnabled, onTimePartToggle } = options;
     if (!list) return;
 
+    bindTimePartsOutsideClickHandler();
     list.innerHTML = "";
     order.forEach(key => {
         if (!COPY_FORMAT_KEYS.includes(key)) return;
@@ -768,11 +943,55 @@ function renderFormatControlList(list, order, enabled, options = {}) {
         item.appendChild(dragHandle);
         item.appendChild(label);
 
+        if (key === "time") {
+            const dropdown = document.createElement("div");
+            dropdown.className = "time-parts-dropdown";
+
+            const partsBtn = document.createElement("button");
+            partsBtn.type = "button";
+            partsBtn.className = "time-parts-toggle-btn";
+            partsBtn.textContent = t("btn_time_parts");
+            partsBtn.title = t("label_time_parts");
+            partsBtn.addEventListener("click", (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const willOpen = !dropdown.classList.contains("open");
+                closeAllTimePartsMenus();
+                if (willOpen) dropdown.classList.add("open");
+            });
+
+            const menu = document.createElement("div");
+            menu.className = "time-parts-menu";
+            TIME_PART_KEYS.forEach((partKey) => {
+                const rowEl = document.createElement("label");
+                rowEl.className = "time-parts-option";
+
+                const cb = document.createElement("input");
+                cb.type = "checkbox";
+                cb.checked = !!timePartsEnabled?.[partKey];
+                cb.addEventListener("change", () => {
+                    if (typeof onTimePartToggle === "function") onTimePartToggle(partKey, cb.checked);
+                });
+
+                const txt = document.createElement("span");
+                txt.textContent = getTimePartLabel(partKey);
+
+                rowEl.appendChild(cb);
+                rowEl.appendChild(txt);
+                menu.appendChild(rowEl);
+            });
+
+            dropdown.appendChild(partsBtn);
+            dropdown.appendChild(menu);
+            item.appendChild(dropdown);
+        }
+
         dragHandle.addEventListener("dragstart", (e) => {
             item.classList.add("dragging");
             if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", key);
+                e.dataTransfer.setDragImage(item, 12, 12);
             }
         });
         dragHandle.addEventListener("dragend", () => {
@@ -788,7 +1007,7 @@ function renderFormatControlList(list, order, enabled, options = {}) {
         e.preventDefault();
         const dragging = list.querySelector(".copy-format-item.dragging");
         if (!dragging) return;
-        const after = getCopyFormatDropTarget(list, e.clientX);
+        const after = getCopyFormatDropTarget(list, e.clientX, e.clientY);
         list.insertBefore(dragging, after);
     };
     list.ondrop = (e) => e.preventDefault();
@@ -804,6 +1023,7 @@ function renderCopyFormatControls() {
     if (!showCopyFormat) {
         displayList.innerHTML = "";
         copyList.innerHTML = "";
+        updateCopyFormatPreview();
         return;
     }
 
@@ -811,11 +1031,20 @@ function renderCopyFormatControls() {
         onToggle: (key, checked) => {
             displayFormatEnabled[key] = checked;
             renderList();
+            updateCopyFormatPreview();
             savePersistence();
         },
         onReorder: (nextOrder) => {
             displayFormatOrder = sanitizeCopyFormatOrder(nextOrder);
             renderList();
+            updateCopyFormatPreview();
+            savePersistence();
+        },
+        timePartsEnabled: displayTimePartsEnabled,
+        onTimePartToggle: (partKey, checked) => {
+            displayTimePartsEnabled[partKey] = checked;
+            renderList();
+            updateCopyFormatPreview();
             savePersistence();
         }
     });
@@ -823,24 +1052,28 @@ function renderCopyFormatControls() {
     renderFormatControlList(copyList, copyFormatOrder, copyFormatEnabled, {
         onToggle: (key, checked) => {
             copyFormatEnabled[key] = checked;
+            updateCopyFormatPreview();
             savePersistence();
         },
         onReorder: (nextOrder) => {
             copyFormatOrder = sanitizeCopyFormatOrder(nextOrder);
+            updateCopyFormatPreview();
+            savePersistence();
+        },
+        timePartsEnabled: copyTimePartsEnabled,
+        onTimePartToggle: (partKey, checked) => {
+            copyTimePartsEnabled[partKey] = checked;
+            updateCopyFormatPreview();
             savePersistence();
         }
     });
+    updateCopyFormatPreview();
 }
 
 function getDisplayColumns(effectiveSlotCount) {
     const columns = [];
     sanitizeCopyFormatOrder(displayFormatOrder).forEach(key => {
         if (!displayFormatEnabled[key]) return;
-        if (key === "time_day") {
-            columns.push("time_day_main");
-            if (effectiveSlotCount > 1) columns.push("time_day_extra");
-            return;
-        }
         if (key === "time") {
             columns.push("time_main");
             if (effectiveSlotCount > 1) columns.push("time_extra");
@@ -854,6 +1087,41 @@ function getDisplayColumns(effectiveSlotCount) {
     return columns;
 }
 
+function getDisplayTimeInputMode() {
+    const showDate = !!displayTimePartsEnabled.date;
+    const showTime = !!displayTimePartsEnabled.time;
+    if (showDate && showTime) return "datetime";
+    if (showDate) return "date";
+    if (showTime) return "time";
+    return "none";
+}
+
+function buildTimeColumnCell(slotIdx, slotCountToRender, options = {}) {
+    if (slotIdx >= slotCountToRender) return "";
+    const { isReadonly = false } = options;
+    const showDn = !!displayTimePartsEnabled.dn;
+    const showWeekday = !!displayTimePartsEnabled.weekday;
+    const inputMode = getDisplayTimeInputMode();
+    const hideInput = inputMode === "none";
+    return `
+        <td class="dynamic-cell">
+            <div class="time-day-group">
+                ${showDn ? `<span class="dn-icon dn-slot-${slotIdx}"></span>` : ""}
+                <input
+                    type="text"
+                    class="time-input slot-${slotIdx}${hideInput ? " time-input-hidden" : ""}"
+                    spellcheck="false"
+                    data-slot="${slotIdx}"
+                    data-field="time"
+                    data-input-mode="${inputMode}"
+                    ${isReadonly || hideInput ? "readonly" : ""}
+                >
+                ${showWeekday ? `<span class="day-badge day-slot-${slotIdx}">-</span>` : ""}
+            </div>
+        </td>
+    `;
+}
+
 function getDisplayColumnHeader(colKey) {
     switch (colKey) {
         case "timezone":
@@ -862,14 +1130,10 @@ function getDisplayColumnHeader(colKey) {
             return `<th style="width: 220px;">${t("th_region")}</th>`;
         case "offset":
             return `<th style="width: 140px;">${t("th_utc_offset")}</th>`;
-        case "time_day_main":
-            return `<th class="dynamic-col">${t("th_time_with_day_main")}</th>`;
-        case "time_day_extra":
-            return `<th class="dynamic-col">${t("th_time_with_day_extra")}</th>`;
         case "time_main":
-            return `<th class="dynamic-col">${t("th_time_main")}</th>`;
+            return `<th class="dynamic-col">${t("th_time_day_main")}</th>`;
         case "time_extra":
-            return `<th class="dynamic-col">${t("th_time_extra")}</th>`;
+            return `<th class="dynamic-col">${t("th_time_day_extra")}</th>`;
         case "period_days":
             return `<th style="width: 90px;">${t("th_period_days")}</th>`;
         case "period_time":
@@ -887,32 +1151,10 @@ function buildStaticRowCell(colKey, slotCountToRender, zoneNameHtml = "") {
             return `<td><div class="zone-info"><span class="zone-name">${zoneNameHtml}</span></div></td>`;
         case "offset":
             return `<td><span class="offset-text"></span></td>`;
-        case "time_day_main":
-        case "time_day_extra": {
-            const slotIdx = colKey === "time_day_main" ? 0 : 1;
-            if (slotIdx >= slotCountToRender) return "";
-            return `
-                <td class="dynamic-cell">
-                    <div class="time-day-group">
-                        <span class="dn-icon dn-slot-${slotIdx}"></span>
-                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" data-slot="${slotIdx}">
-                        <span class="day-badge day-slot-${slotIdx}">-</span>
-                    </div>
-                </td>
-            `;
-        }
         case "time_main":
         case "time_extra": {
             const slotIdx = colKey === "time_main" ? 0 : 1;
-            if (slotIdx >= slotCountToRender) return "";
-            return `
-                <td class="dynamic-cell">
-                    <div class="time-day-group">
-                        <span class="dn-icon dn-slot-${slotIdx}"></span>
-                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" data-slot="${slotIdx}">
-                    </div>
-                </td>
-            `;
+            return buildTimeColumnCell(slotIdx, slotCountToRender, { isReadonly: isRealtime });
         }
         case "period_days":
             return `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
@@ -931,32 +1173,10 @@ function buildDynamicRowCell(colKey, slotCountToRender) {
             return `<td><div class="zone-info"><span class="zone-name"></span></div></td>`;
         case "offset":
             return `<td><span class="offset-text"></span></td>`;
-        case "time_day_main":
-        case "time_day_extra": {
-            const slotIdx = colKey === "time_day_main" ? 0 : 1;
-            if (slotIdx >= slotCountToRender) return "";
-            return `
-                <td class="dynamic-cell">
-                    <div class="time-day-group">
-                        <span class="dn-icon dn-slot-${slotIdx}"></span>
-                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${slotIdx}">
-                        <span class="day-badge day-slot-${slotIdx}"></span>
-                    </div>
-                </td>
-            `;
-        }
         case "time_main":
         case "time_extra": {
             const slotIdx = colKey === "time_main" ? 0 : 1;
-            if (slotIdx >= slotCountToRender) return "";
-            return `
-                <td class="dynamic-cell">
-                    <div class="time-day-group">
-                        <span class="dn-icon dn-slot-${slotIdx}"></span>
-                        <input type="text" class="time-input slot-${slotIdx}" spellcheck="false" ${isRealtime ? "readonly" : ""} data-slot="${slotIdx}">
-                    </div>
-                </td>
-            `;
+            return buildTimeColumnCell(slotIdx, slotCountToRender, { isReadonly: isRealtime });
         }
         case "period_days":
             return `<td class="period-days-cell"><span class="period-days-text">-</span></td>`;
@@ -1087,10 +1307,11 @@ function renderList() {
     for (let i = 0; i < effectiveSlotCount; i++) {
         const inputs = [...baseRow.querySelectorAll(`.time-input[data-slot="${i}"]`)];
         inputs.forEach(inp => {
-            inp.onchange = (e) => handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id);
+            const inputMode = inp.dataset.inputMode || "datetime";
+            inp.onchange = (e) => handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id, inputMode);
             inp.onkeydown = (e) => {
                 if (e.key === "Enter") {
-                    handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id);
+                    handleTimeChange(e.target.value, baseRef.zone || "CUSTOM", i, baseRef.id, inputMode);
                     inp.blur();
                 }
             };
@@ -1119,10 +1340,11 @@ function renderList() {
         for (let i = 0; i < effectiveSlotCount; i++) {
             const inputs = [...utcRow.querySelectorAll(`.time-input[data-slot="${i}"]`)];
             inputs.forEach(inp => {
-                inp.onchange = (e) => handleTimeChange(e.target.value, utcRef.zone, i);
+                const inputMode = inp.dataset.inputMode || "datetime";
+                inp.onchange = (e) => handleTimeChange(e.target.value, utcRef.zone, i, null, inputMode);
                 inp.onkeydown = (e) => {
                     if (e.key === "Enter") {
-                        handleTimeChange(e.target.value, utcRef.zone, i);
+                        handleTimeChange(e.target.value, utcRef.zone, i, null, inputMode);
                         inp.blur();
                     }
                 };
@@ -1157,10 +1379,11 @@ function renderList() {
 
         tr.querySelectorAll(".time-input").forEach(inp => {
             const slotIdx = parseInt(inp.dataset.slot, 10);
-            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id);
+            const inputMode = inp.dataset.inputMode || "datetime";
+            inp.onchange = (e) => handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id, inputMode);
             inp.onkeydown = (e) => {
                 if (e.key === "Enter") {
-                    handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id);
+                    handleTimeChange(e.target.value, tz.zone || "CUSTOM", slotIdx, tz.id, inputMode);
                     inp.blur();
                 }
             };
@@ -1178,6 +1401,7 @@ function renderList() {
             if (e.dataTransfer) {
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData("text/plain", tz.id);
+                e.dataTransfer.setDragImage(tr, 20, 20);
             }
         });
         dragHandle.addEventListener("dragend", () => {
@@ -1436,6 +1660,18 @@ function applyTimeAdjustAction(slotIdx, action) {
         case "minus_week":
             parts = shiftLocalParts(parts, { weeks: -1 });
             break;
+        case "plus_four_weeks":
+            parts = shiftLocalParts(parts, { weeks: 4 });
+            break;
+        case "minus_four_weeks":
+            parts = shiftLocalParts(parts, { weeks: -4 });
+            break;
+        case "plus_custom_days":
+            parts = shiftLocalParts(parts, { days: getTimeAdjustDayStep(slotIdx) });
+            break;
+        case "minus_custom_days":
+            parts = shiftLocalParts(parts, { days: -getTimeAdjustDayStep(slotIdx) });
+            break;
         default:
             return;
     }
@@ -1452,6 +1688,7 @@ function updateClocks() {
     if (baseRef.id !== "utc") updateRow(utcRef.id, utcRef);
     const currentZones = getCurrentGroupZones().filter(tz => tz.id !== baseRef.id);
     currentZones.forEach(tz => updateRow(tz.id, tz));
+    updateCopyFormatPreview();
 }
 
 function updateRow(id, tz) {
@@ -1547,8 +1784,15 @@ function updateRow(id, tz) {
             timeStr = t.str;
         }
 
+        const [dateStr, clockStrRaw] = timeStr.split(" ");
+        const clockStr = (clockStrRaw || "").trim();
         inputs.forEach(input => {
-            if (document.activeElement !== input) input.value = timeStr;
+            const inputMode = input.dataset.inputMode || "datetime";
+            let nextValue = timeStr;
+            if (inputMode === "date") nextValue = dateStr;
+            else if (inputMode === "time") nextValue = clockStr;
+            else if (inputMode === "none") nextValue = "";
+            if (document.activeElement !== input) input.value = nextValue;
         });
         dayBadges.forEach(dayBadge => {
             dayBadge.textContent = I18N_DATA[currentLang].days[displayDow];
@@ -1579,17 +1823,64 @@ function updateRow(id, tz) {
     }
 }
 
-function handleTimeChange(val, timezone, slotIdx, timezoneId = null) {
+function resolveLocalDatePartsByTimezone(timezone, slotIdx, timezoneId = null) {
+    if (timezone === "UTC") {
+        const d = globalTimes[slotIdx];
+        return { Y: d.getUTCFullYear(), M: d.getUTCMonth() + 1, D: d.getUTCDate() };
+    }
+
+    if (timezone === "CUSTOM") {
+        const currentZones = getCurrentGroupZones();
+        let tz = null;
+        if (timezoneId) {
+            tz = currentZones.find(z => z.id === timezoneId) || null;
+        }
+        if (!tz) {
+            const row = document.querySelector(".dragging") || (document.activeElement?.closest ? document.activeElement.closest("tr") : null);
+            const rowId = row?.id ? row.id.replace("tz-row-", "") : "";
+            if (rowId) tz = currentZones.find(z => z.id === rowId) || null;
+        }
+        if (!tz) return null;
+        const shifted = new Date(globalTimes[slotIdx].getTime() + (getCustomOffsetMinutes(tz) * 60000));
+        return { Y: shifted.getUTCFullYear(), M: shifted.getUTCMonth() + 1, D: shifted.getUTCDate() };
+    }
+
+    const f = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour12: false
+    });
+    const parts = f.formatToParts(globalTimes[slotIdx]);
+    const get = (type) => parseInt(parts.find(p => p.type === type)?.value || "0", 10);
+    return { Y: get("year"), M: get("month"), D: get("day") };
+}
+
+function handleTimeChange(val, timezone, slotIdx, timezoneId = null, inputMode = "datetime") {
     if (isRealtime) return;
-    const date = new Date(val.replace(" ", "T"));
-    if (isNaN(date.getTime())) {
+    const normalized = (val || "").trim();
+    const dateTimeMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
+    const dateOnlyMatch = normalized.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const timeOnlyMatch = normalized.match(/^(\d{2}):(\d{2}):(\d{2})$/);
+    let Y = 0; let M = 0; let D = 0; let H = 0; let min = 0; let S = 0;
+    if (inputMode === "none") {
+        return;
+    }
+    if (inputMode === "datetime" && dateTimeMatch) {
+        [Y, M, D, H, min, S] = dateTimeMatch.slice(1).map(Number);
+    } else if (inputMode === "date" && dateOnlyMatch) {
+        [Y, M, D] = dateOnlyMatch.slice(1).map(Number);
+    } else if (inputMode === "time" && timeOnlyMatch) {
+        const baseDateParts = resolveLocalDatePartsByTimezone(timezone, slotIdx, timezoneId);
+        if (!baseDateParts) return;
+        ({ Y, M, D } = baseDateParts);
+        [H, min, S] = timeOnlyMatch.slice(1).map(Number);
+    } else {
         showToast(t("toast_invalid_date"));
         renderList();
         return;
     }
-    const match = val.trim().match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
-    if (!match) return;
-    const [_, Y, M, D, H, min, S] = match.map(Number);
     const tempUTC = new Date(Date.UTC(Y, M - 1, D, H, min, S));
     if (isNaN(tempUTC.getTime())) return;
 
@@ -1792,16 +2083,25 @@ function buildTimezoneComputedSnapshot(id) {
 
     const effectiveSlotCount = isRealtime ? 1 : slotCount;
     const timeValues = [];
-    const timeDayValues = [];
+    const dateValues = [];
+    const clockValues = [];
+    const dayNameValues = [];
+    const dayNightIconValues = [];
     for (let i = 0; i < effectiveSlotCount; i++) {
         if (tz.type === "custom" || Number.isFinite(fixedDisplayOffsetMinutes)) {
             const offsetMin = tz.type === "custom" ? getCustomOffsetMinutes(tz) : fixedDisplayOffsetMinutes;
             const tMs = globalTimes[i].getTime() + (offsetMin * 60000);
             const shifted = new Date(tMs);
             const timeStr = `${shifted.getUTCFullYear()}-${pad(shifted.getUTCMonth() + 1)}-${pad(shifted.getUTCDate())} ${pad(shifted.getUTCHours())}:${pad(shifted.getUTCMinutes())}:${pad(shifted.getUTCSeconds())}`;
+            const dateStr = timeStr.split(" ")[0];
             const dayStr = I18N_DATA[currentLang].days[shifted.getUTCDay()];
+            const clockStr = timeStr.split(" ")[1] || "";
+            const dayNightIcon = shifted.getUTCHours() >= 6 && shifted.getUTCHours() <= 18 ? "☀️" : "🌙";
             timeValues.push(timeStr);
-            timeDayValues.push(`${timeStr} (${dayStr})`);
+            dateValues.push(dateStr);
+            clockValues.push(clockStr);
+            dayNameValues.push(dayStr);
+            dayNightIconValues.push(dayNightIcon);
             continue;
         }
         const f = new Intl.DateTimeFormat("en-US", {
@@ -1823,8 +2123,14 @@ function buildTimezoneComputedSnapshot(id) {
         const weekdayIdx = weekdayMap[weekday];
         const timeStr = `${get("year")}-${pad(get("month"))}-${pad(get("day"))} ${pad(h === 24 ? 0 : h)}:${pad(get("minute"))}:${pad(get("second"))}`;
         const dayStr = Number.isInteger(weekdayIdx) ? I18N_DATA[currentLang].days[weekdayIdx] : "";
+        const dateStr = timeStr.split(" ")[0];
+        const clockStr = timeStr.split(" ")[1] || "";
+        const dayNightIcon = (h === 24 ? 0 : h) >= 6 && (h === 24 ? 0 : h) <= 18 ? "☀️" : "🌙";
         timeValues.push(timeStr);
-        timeDayValues.push(dayStr ? `${timeStr} (${dayStr})` : timeStr);
+        dateValues.push(dateStr);
+        clockValues.push(clockStr);
+        dayNameValues.push(dayStr);
+        dayNightIconValues.push(dayNightIcon);
     }
 
     let periodDaysText = "";
@@ -1840,14 +2146,40 @@ function buildTimezoneComputedSnapshot(id) {
         timezone: zoneCodeMain,
         region: getZoneDisplayName(tz),
         offset: offsetStr,
-        timesWithDay: timeDayValues,
         times: timeValues,
+        dates: dateValues,
+        clocks: clockValues,
+        dayNames: dayNameValues,
+        dayNightIcons: dayNightIconValues,
         periodDays: periodDaysText,
         periodTime: periodTimeText
     };
 }
 
-function getCopyFieldText(snapshot, key) {
+function formatTimeTextByParts(snapshot, timePartsEnabled) {
+    const safeParts = sanitizeTimePartsEnabled(timePartsEnabled, "copy");
+    const dates = Array.isArray(snapshot.dates) ? snapshot.dates : [];
+    const clocks = Array.isArray(snapshot.clocks) ? snapshot.clocks : [];
+    const dayNames = Array.isArray(snapshot.dayNames) ? snapshot.dayNames : [];
+    const dayNightIcons = Array.isArray(snapshot.dayNightIcons) ? snapshot.dayNightIcons : [];
+    const slotSize = Math.max(dates.length, clocks.length, dayNames.length, dayNightIcons.length);
+    const rendered = [];
+
+    for (let i = 0; i < slotSize; i++) {
+        const tokens = [];
+        if (safeParts.dn && dayNightIcons[i]) tokens.push(dayNightIcons[i]);
+        if (safeParts.date && dates[i]) tokens.push(dates[i]);
+        if (safeParts.time && clocks[i]) tokens.push(clocks[i]);
+        if (safeParts.weekday && dayNames[i]) tokens.push(`(${dayNames[i]})`);
+        const merged = tokens.join(" ").trim();
+        if (merged) rendered.push(merged);
+    }
+
+    return rendered.join(" ~ ");
+}
+
+function getCopyFieldText(snapshot, key, options = {}) {
+    const { timePartsEnabled = DEFAULT_COPY_TIME_PARTS_ENABLED } = options;
     if (!snapshot) return "";
     if (key === "timezone") {
         const zoneCodeRaw = (snapshot.timezone || "").trim();
@@ -1865,16 +2197,8 @@ function getCopyFieldText(snapshot, key) {
         return offsetText.startsWith("[") ? offsetText : `[${offsetText}]`;
     }
 
-    if (key === "time_day") {
-        const times = Array.isArray(snapshot.timesWithDay) ? snapshot.timesWithDay.filter(Boolean) : [];
-        if (!times.length) return "";
-        return times.join(" ~ ");
-    }
-
     if (key === "time") {
-        const times = Array.isArray(snapshot.times) ? snapshot.times.filter(Boolean) : [];
-        if (!times.length) return "";
-        return times.join(" ~ ");
+        return formatTimeTextByParts(snapshot, timePartsEnabled);
     }
 
     if (key === "period_days") {
@@ -1893,6 +2217,10 @@ function getCopyFieldText(snapshot, key) {
 }
 
 function getRowCopyText(rowOrId) {
+    return getRowFormattedText(rowOrId, copyFormatOrder, copyFormatEnabled, copyTimePartsEnabled);
+}
+
+function getRowFormattedText(rowOrId, order, enabled, timePartsEnabled = DEFAULT_COPY_TIME_PARTS_ENABLED) {
     const rowId = typeof rowOrId === "string"
         ? rowOrId
         : String(rowOrId?.id || "").replace("tz-row-", "");
@@ -1902,12 +2230,32 @@ function getRowCopyText(rowOrId) {
     if (!snapshot) return "";
 
     const orderedParts = [];
-    copyFormatOrder.forEach(key => {
-        if (!copyFormatEnabled[key]) return;
-        const value = getCopyFieldText(snapshot, key);
+    sanitizeCopyFormatOrder(order).forEach(key => {
+        if (!enabled?.[key]) return;
+        const value = getCopyFieldText(snapshot, key, { timePartsEnabled });
         if (value) orderedParts.push(value);
     });
     return orderedParts.join(" ").trim();
+}
+
+function updateCopyFormatPreview() {
+    const copyPreviewEl = document.getElementById("copy-format-preview");
+    if (!copyPreviewEl) return;
+
+    const setPreview = (el, text) => {
+        const resolved = text || "-";
+        el.textContent = resolved;
+        el.classList.toggle("empty", resolved === "-");
+    };
+
+    if (!showCopyFormat) {
+        setPreview(copyPreviewEl, "-");
+        return;
+    }
+
+    const baseRef = getBaseTimezoneRef();
+    const baseRowId = baseRef?.id || "utc";
+    setPreview(copyPreviewEl, getRowFormattedText(baseRowId, copyFormatOrder, copyFormatEnabled, copyTimePartsEnabled));
 }
 
 async function copyRow(id) {
@@ -1971,10 +2319,7 @@ function getTimezoneTableImageFilename() {
     const baseRef = getBaseTimezoneRef();
     const groupName = sanitizeFilenamePart(groups[activeGroupId]?.name || t("default_group_name")) || "Group";
     const baseAbbr = sanitizeFilenamePart(getZoneAbbreviation(baseRef) || "UTC") || "UTC";
-
-    const baseRow = document.getElementById(`tz-row-${baseRef.id}`);
-    const baseTimeInput = baseRow?.querySelector(".slot-0");
-    const baseDateTime = (baseTimeInput?.value || formatDateTimeByTimezone(globalTimes[0], baseRef)).trim();
+    const baseDateTime = formatDateTimeByTimezone(globalTimes[0], baseRef).trim();
     const m = baseDateTime.match(/^(\d{4}-\d{2}-\d{2})\s+(\d{2}):(\d{2}):(\d{2})$/);
     const timePart = sanitizeFilenamePart(m ? `${m[1]} ${m[2]}${m[3]}${m[4]}` : baseDateTime.replace(/:/g, "")) || "time";
 
@@ -2021,14 +2366,60 @@ function loadImageElement(src) {
     });
 }
 
+function isDomExceptionLike(err) {
+    if (!err) return false;
+    if (typeof DOMException !== "undefined" && err instanceof DOMException) return true;
+    const name = typeof err.name === "string" ? err.name : "";
+    return name === "SecurityError" || name === "InvalidStateError";
+}
+
+async function detectForeignObjectRendererSupport() {
+    if (typeof canUseForeignObjectRenderer === "boolean") return canUseForeignObjectRenderer;
+    if (typeof URL === "undefined" || typeof URL.createObjectURL !== "function") {
+        canUseForeignObjectRenderer = false;
+        return false;
+    }
+
+    const probeSvg = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4">
+            <foreignObject width="100%" height="100%">
+                <div xmlns="http://www.w3.org/1999/xhtml" style="width:4px;height:4px;background:#000;"></div>
+            </foreignObject>
+        </svg>
+    `;
+    const probeBlob = new Blob([probeSvg], { type: "image/svg+xml;charset=utf-8" });
+    const probeUrl = URL.createObjectURL(probeBlob);
+    try {
+        const img = await loadImageElement(probeUrl);
+        const canvas = document.createElement("canvas");
+        canvas.width = 4;
+        canvas.height = 4;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+            canUseForeignObjectRenderer = false;
+            return false;
+        }
+        ctx.drawImage(img, 0, 0, 4, 4);
+        canvas.toDataURL("image/png");
+        canUseForeignObjectRenderer = true;
+        return true;
+    } catch (err) {
+        canUseForeignObjectRenderer = false;
+        return false;
+    } finally {
+        URL.revokeObjectURL(probeUrl);
+    }
+}
+
 function extractTableCellText(cell) {
     if (!cell) return "";
     const timeInput = cell.querySelector(".time-input");
     if (timeInput) {
+        const dnText = (cell.querySelector(".dn-icon")?.textContent || "").trim();
         const dayBadge = cell.querySelector(".day-badge");
         const timeText = (timeInput.value || "").trim();
         const dayText = (dayBadge?.textContent || "").trim();
-        return dayText ? `${timeText} ${dayText}` : timeText;
+        return [dnText, timeText, dayText].filter(Boolean).join(" ").trim();
     }
 
     const zoneCode = (cell.querySelector(".zone-code")?.textContent || "").trim();
@@ -2239,7 +2630,8 @@ async function renderTimezoneTableToPngDataUrl() {
         ctx.fillStyle = getComputedStyle(document.body).backgroundColor || "#0f172a";
         ctx.fillRect(0, 0, targetWidth, targetHeight);
         ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
-        return canvas.toDataURL("image/png");
+        const dataUrl = canvas.toDataURL("image/png");
+        return dataUrl;
     } finally {
         URL.revokeObjectURL(svgUrl);
     }
@@ -2289,10 +2681,17 @@ function downloadDataUrl(dataUrl, filename) {
 async function saveTimezoneTableImage() {
     try {
         let dataUrl = "";
-        try {
-            dataUrl = await renderTimezoneTableToPngDataUrl();
-        } catch (primaryErr) {
-            console.warn("Primary table image render failed. Fallback renderer is used.", primaryErr);
+        const supportsPrimaryRenderer = await detectForeignObjectRendererSupport();
+        if (supportsPrimaryRenderer) {
+            try {
+                dataUrl = await renderTimezoneTableToPngDataUrl();
+            } catch (primaryErr) {
+                if (isDomExceptionLike(primaryErr)) {
+                    canUseForeignObjectRenderer = false;
+                }
+                dataUrl = renderTimezoneTableFallbackDataUrl();
+            }
+        } else {
             dataUrl = renderTimezoneTableFallbackDataUrl();
         }
         const filename = `${getTimezoneTableImageFilename()}.png`;
@@ -2433,8 +2832,14 @@ function getPersistenceSnapshot() {
         showCopyFormat,
         displayFormatOrder: sanitizeCopyFormatOrder(displayFormatOrder),
         displayFormatEnabled: sanitizeCopyFormatEnabled(displayFormatEnabled, "display"),
+        displayTimePartsEnabled: sanitizeTimePartsEnabled(displayTimePartsEnabled, "display"),
         copyFormatOrder: sanitizeCopyFormatOrder(copyFormatOrder),
-        copyFormatEnabled: sanitizeCopyFormatEnabled(copyFormatEnabled, "copy")
+        copyFormatEnabled: sanitizeCopyFormatEnabled(copyFormatEnabled, "copy"),
+        copyTimePartsEnabled: sanitizeTimePartsEnabled(copyTimePartsEnabled, "copy"),
+        timeAdjustDayStepBySlot: [
+            getTimeAdjustDayStep(0),
+            getTimeAdjustDayStep(1)
+        ]
     };
 }
 
@@ -2635,12 +3040,15 @@ function loadPersistence() {
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
         showTimeAdjust = false;
-        ignoreDST = false;
+        ignoreDST = true;
         showCopyFormat = false;
+        timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
         displayFormatOrder = [...COPY_FORMAT_KEYS];
         displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
+        displayTimePartsEnabled = sanitizeTimePartsEnabled(null, "display");
         copyFormatOrder = [...COPY_FORMAT_KEYS];
         copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
+        copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
         isRealtime = true;
         return;
     }
@@ -2677,31 +3085,34 @@ function loadPersistence() {
         slotCount = Math.min(2, Math.max(1, Number.isFinite(parsedSlotCount) ? parsedSlotCount : 1));
 
         showTimeAdjust = !!d?.showTimeAdjust;
-        ignoreDST = !!d?.ignoreDST;
+        ignoreDST = (typeof d?.ignoreDST === "boolean") ? d.ignoreDST : true;
         showCopyFormat = !!d?.showCopyFormat;
+        const rawTimeAdjustStep = Array.isArray(d?.timeAdjustDayStepBySlot) ? d.timeAdjustDayStepBySlot : [];
+        timeAdjustDayStepBySlot = [
+            sanitizeTimeAdjustDayStep(rawTimeAdjustStep[0]),
+            sanitizeTimeAdjustDayStep(rawTimeAdjustStep[1])
+        ];
         const hasDisplayOrder = Array.isArray(d?.displayFormatOrder);
         const hasDisplayEnabled = !!(d?.displayFormatEnabled && typeof d.displayFormatEnabled === "object");
-        const rawDisplayOrder = hasDisplayOrder ? d.displayFormatOrder : d?.copyFormatOrder;
         const rawDisplayEnabled = hasDisplayEnabled ? d.displayFormatEnabled : d?.copyFormatEnabled;
-        const needsDisplayTimeLegacyMap = !Array.isArray(rawDisplayOrder) || !rawDisplayOrder.includes("time_day");
-        const displayLegacyTimeMap = needsDisplayTimeLegacyMap ? "time_day" : null;
-
         const fallbackCopyOrder = sanitizeCopyFormatOrder(d?.copyFormatOrder);
-        const fallbackCopyEnabled = sanitizeCopyFormatEnabled(d?.copyFormatEnabled, "copy", "time");
+        const fallbackCopyEnabled = sanitizeCopyFormatEnabled(d?.copyFormatEnabled, "copy");
 
-        displayFormatOrder = sanitizeCopyFormatOrder(
-            hasDisplayOrder ? d.displayFormatOrder : d?.copyFormatOrder,
-            displayLegacyTimeMap
+        displayFormatOrder = sanitizeCopyFormatOrder(hasDisplayOrder ? d.displayFormatOrder : d?.copyFormatOrder);
+        displayFormatEnabled = sanitizeCopyFormatEnabled(rawDisplayEnabled, "display");
+        displayTimePartsEnabled = sanitizeTimePartsEnabled(
+            d?.displayTimePartsEnabled,
+            "display"
         );
-        displayFormatEnabled = sanitizeCopyFormatEnabled(
-            rawDisplayEnabled,
-            "display",
-            (rawDisplayEnabled && typeof rawDisplayEnabled === "object" && Object.prototype.hasOwnProperty.call(rawDisplayEnabled, "time_day"))
-                ? null
-                : displayLegacyTimeMap
-        );
+        if (!d?.displayTimePartsEnabled) {
+            displayTimePartsEnabled = deriveTimePartsFromLegacyEnabled(rawDisplayEnabled, "display");
+        }
         copyFormatOrder = fallbackCopyOrder;
         copyFormatEnabled = fallbackCopyEnabled;
+        copyTimePartsEnabled = sanitizeTimePartsEnabled(d?.copyTimePartsEnabled, "copy");
+        if (!d?.copyTimePartsEnabled) {
+            copyTimePartsEnabled = deriveTimePartsFromLegacyEnabled(d?.copyFormatEnabled, "copy");
+        }
         normalizeGroupTabState();
         if (currentMainTab === "live" || currentMainTab === "fixed") {
             activeGroupId = activeGroupIdByMainTab[currentMainTab];
@@ -2716,12 +3127,15 @@ function loadPersistence() {
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
         showTimeAdjust = false;
-        ignoreDST = false;
+        ignoreDST = true;
         showCopyFormat = false;
+        timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
         displayFormatOrder = [...COPY_FORMAT_KEYS];
         displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
+        displayTimePartsEnabled = sanitizeTimePartsEnabled(null, "display");
         copyFormatOrder = [...COPY_FORMAT_KEYS];
         copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
+        copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
         isRealtime = true;
         savePersistence();
     }
