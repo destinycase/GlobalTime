@@ -49,10 +49,15 @@ let copyTimePartsEnabled = { ...DEFAULT_COPY_TIME_PARTS_ENABLED };
 let timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
 let currentMainTab = "live";
 let activeGroupIdByMainTab = { live: 0, fixed: 0 };
-const VERSION = "3.2.10";
+const VERSION = "3.2.11";
 const STORAGE_KEY = "GTV_v323_Data";
 const THEME_STORAGE_KEY = "GTV_Theme";
 const LANG_STORAGE_KEY = "GTV_Lang";
+const UI_SCALE_STORAGE_KEY = "GTV_UIScale";
+const MIN_UI_SCALE_PERCENT = 50;
+const MAX_UI_SCALE_PERCENT = 200;
+const DEFAULT_UI_SCALE_PERCENT = 100;
+const UI_SCALE_STEP_PERCENT = 10;
 const LEGACY_STORAGE_KEYS = ["GTV_v322_Data", "GTV_v321_Data", "GTV_v320_Data", "GTV_v310_Data", "GTV_v300_Data", "GTV_v200_Data", "GTV_v170_Data", "GTV_v160_Data", "GTV_v150_Data", "GTV_v140_Data"];
 const THEME_LIST = ["dark", "light"];
 const TABLE_IMAGE_EXPORT_WIDTH = 1920;
@@ -321,6 +326,50 @@ function deriveTimePartsFromLegacyEnabled(legacyEnabled, mode = "display") {
     return sanitizeTimePartsEnabled(null, mode);
 }
 
+function sanitizeUiScalePercent(value) {
+    const parsed = parseInt(value, 10);
+    if (!Number.isFinite(parsed)) return DEFAULT_UI_SCALE_PERCENT;
+    return Math.min(MAX_UI_SCALE_PERCENT, Math.max(MIN_UI_SCALE_PERCENT, parsed));
+}
+
+function getCurrentUiScalePercent() {
+    return Math.round(uiScale * 100);
+}
+
+function applyUiScale(scalePercent, persist = true) {
+    const safePercent = sanitizeUiScalePercent(scalePercent);
+    uiScale = safePercent / 100;
+
+    if (document.documentElement) {
+        document.documentElement.style.setProperty("--ui-zoom", uiScale.toFixed(2));
+        document.documentElement.style.zoom = String(uiScale);
+        document.documentElement.style.overflow = "hidden";
+    }
+    if (document.body) {
+        document.body.style.overflow = "hidden";
+    }
+
+    if (persist) {
+        localStorage.setItem(UI_SCALE_STORAGE_KEY, String(safePercent));
+    }
+}
+
+function loadUiScalePreference() {
+    return sanitizeUiScalePercent(localStorage.getItem(UI_SCALE_STORAGE_KEY) || DEFAULT_UI_SCALE_PERCENT);
+}
+
+function populateUiScaleSelect(selectEl) {
+    if (!selectEl) return;
+
+    selectEl.innerHTML = "";
+    for (let percent = MIN_UI_SCALE_PERCENT; percent <= MAX_UI_SCALE_PERCENT; percent += UI_SCALE_STEP_PERCENT) {
+        const option = document.createElement("option");
+        option.value = String(percent);
+        option.textContent = `${percent}%`;
+        selectEl.appendChild(option);
+    }
+}
+
 function sanitizeTheme(theme) {
     return THEME_LIST.includes(theme) ? theme : "dark";
 }
@@ -363,6 +412,7 @@ let activeGroupId = 0;
 document.addEventListener("DOMContentLoaded", () => {
     loadPersistence();
     applyTheme(loadThemePreference(), false);
+    applyUiScale(loadUiScalePreference(), false);
     applyTranslations();
     applyVersionBranding();
     initUI();
@@ -387,7 +437,15 @@ function initUI() {
         btn.addEventListener("click", () => switchMainTab(btn.dataset.tab));
     });
 
-    // Scale Spinner - Disabled in v1.7.3
+    const uiScaleSelect = document.getElementById("ui-scale-select");
+    if (uiScaleSelect) {
+        populateUiScaleSelect(uiScaleSelect);
+        uiScaleSelect.value = String(getCurrentUiScalePercent());
+        uiScaleSelect.onchange = (e) => {
+            applyUiScale(e.target.value);
+            uiScaleSelect.value = String(getCurrentUiScalePercent());
+        };
+    }
 
     // Populate Custom Offset Hour Select
     const hSel = document.getElementById("custom-off-h");
@@ -2946,7 +3004,8 @@ function exportSettingsToJSON() {
             data: getPersistenceSnapshot(),
             preferences: {
                 theme: sanitizeTheme(currentTheme),
-                language: I18N_DATA[currentLang] ? currentLang : "ko"
+                language: I18N_DATA[currentLang] ? currentLang : "ko",
+                uiScale: getCurrentUiScalePercent()
             }
         };
 
@@ -3013,6 +3072,9 @@ function applyImportedSettings(importedRoot) {
         if (typeof pref.language === "string" && I18N_DATA[pref.language]) {
             localStorage.setItem(LANG_STORAGE_KEY, pref.language);
         }
+        if (pref.uiScale !== undefined) {
+            localStorage.setItem(UI_SCALE_STORAGE_KEY, String(sanitizeUiScalePercent(pref.uiScale)));
+        }
     }
 
     const nextLang = localStorage.getItem(LANG_STORAGE_KEY) || "ko";
@@ -3022,6 +3084,7 @@ function applyImportedSettings(importedRoot) {
         savePersistence();
     }
     applyTheme(loadThemePreference(), false);
+    applyUiScale(loadUiScalePreference(), false);
     applyTranslations();
     applyVersionBranding();
 
@@ -3030,6 +3093,11 @@ function applyImportedSettings(importedRoot) {
 
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) themeSelect.value = currentTheme;
+    const uiScaleSelect = document.getElementById("ui-scale-select");
+    if (uiScaleSelect) {
+        populateUiScaleSelect(uiScaleSelect);
+        uiScaleSelect.value = String(getCurrentUiScalePercent());
+    }
 
     updateTZDropdown();
     refreshSelectWidths();
@@ -3061,7 +3129,7 @@ function savePersistence() {
 function resetAllSettings() {
     if (!confirm(t("confirm_reset_all_settings"))) return;
 
-    const keysToRemove = [STORAGE_KEY, THEME_STORAGE_KEY, LANG_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+    const keysToRemove = [STORAGE_KEY, THEME_STORAGE_KEY, LANG_STORAGE_KEY, UI_SCALE_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
     keysToRemove.forEach((key) => localStorage.removeItem(key));
     location.reload();
 }

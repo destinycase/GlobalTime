@@ -4,9 +4,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Global Time v3.2.10</title>
-    <link rel="stylesheet" href="style.css?v=334">
-    <script src="i18n.js?v=334"></script>
+    <title>Global Time v3.2.11</title>
+    <link rel="stylesheet" href="style.css?v=335">
+    <script src="i18n.js?v=335"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link
@@ -22,7 +22,7 @@
                 <span class="logo-icon">🌍</span>
                 <div class="logo-text">
                     <h1>Global Time</h1>
-                    <span class="version-badge" id="version-badge">ver 3.2.10</span>
+                    <span class="version-badge" id="version-badge">ver 3.2.11</span>
                 </div>
             </div>
 
@@ -35,12 +35,18 @@
             <div class="sidebar-footer">
                 <div class="sidebar-separator"></div>
                 <div class="sidebar-group sidebar-group-select">
+                    <label for="ui-scale-select" class="sidebar-control-label" data-i18n="label_ui_scale">UI 스케일</label>
+                    <select id="ui-scale-select" class="form-select sidebar-select" style="width: 100%;"></select>
+                </div>
+                <div class="sidebar-group sidebar-group-select">
+                    <label for="theme-select" class="sidebar-control-label" data-i18n="label_theme">테마</label>
                     <select id="theme-select" class="form-select sidebar-select" style="width: 100%;">
                         <option value="dark" data-i18n="theme_dark">다크</option>
                         <option value="light" data-i18n="theme_light">라이트</option>
                     </select>
                 </div>
                 <div class="sidebar-group sidebar-group-select">
+                    <label for="lang-select" class="sidebar-control-label" data-i18n="label_language">언어</label>
                     <select id="lang-select" class="form-select sidebar-select" style="width: 100%;">
                         <option value="ko">한국어 (KO)</option>
                         <option value="en">English (EN)</option>
@@ -329,7 +335,7 @@
     <div id="toast-container" class="toast-container"></div>
     <input type="file" id="settings-import-file" accept="application/json,.json" style="display:none;">
 
-    <script src="main.js?v=334"></script>
+    <script src="main.js?v=335"></script>
 </body>
 
 </html>

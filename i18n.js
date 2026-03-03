@@ -1,6 +1,6 @@
 const I18N_DATA = {
     ko: {
-        app_title: "Global Time v3.2.10",
+        app_title: "Global Time v3.2.11",
         nav_live: "실시간",
         nav_fixed: "시간 변경",
         nav_calc: "계산기 도구",
@@ -15,7 +15,7 @@ const I18N_DATA = {
         label_custom: "커스텀",
         label_time_adjust: "시간 수정",
         label_ignore_dst: "DST 무시",
-        label_extra_time: "추가 시간 표시",
+        label_extra_time: "추가 시간",
         label_copy_format: "표기 / 복사 양식",
         tooltip_time_adjust_desc: "기준 시간으로 설정 된 시간대의 시간을 변경할 수 있습니다.",
         tooltip_ignore_dst_desc: "기간 계산 시, DST(Daylight Saving Time, 일광 절약 시간제)를 무시하고 계산합니다.",
@@ -26,6 +26,8 @@ const I18N_DATA = {
         label_preview: "복사 미리보기",
         label_custom_days: "커스텀 일수",
         label_theme: "테마",
+        label_language: "언어",
+        label_ui_scale: "UI 스케일",
         theme_dark: "다크",
         theme_light: "라이트",
         btn_export_settings: "설정 내보내기",
@@ -143,7 +145,7 @@ const I18N_DATA = {
         prompt_rename_group: "그룹 이름 변경:"
     },
     en: {
-        app_title: "Global Time v3.2.10",
+        app_title: "Global Time v3.2.11",
         nav_live: "Realtime",
         nav_fixed: "Time Edit",
         nav_calc: "Calculator",
@@ -158,7 +160,7 @@ const I18N_DATA = {
         label_custom: "Custom",
         label_time_adjust: "Time Edit",
         label_ignore_dst: "Ignore DST",
-        label_extra_time: "Show Extra Time",
+        label_extra_time: "Extra Time",
         label_copy_format: "Display / Copy Format",
         tooltip_time_adjust_desc: "You can change the time of the timezone set as the base time.",
         tooltip_ignore_dst_desc: "When calculating periods, DST (Daylight Saving Time) is ignored.",
@@ -169,6 +171,8 @@ const I18N_DATA = {
         label_preview: "Copy Preview",
         label_custom_days: "Custom Days",
         label_theme: "Theme",
+        label_language: "Language",
+        label_ui_scale: "UI Scale",
         theme_dark: "Dark",
         theme_light: "Light",
         btn_export_settings: "Export Settings",
