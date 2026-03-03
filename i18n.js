@@ -1,8 +1,8 @@
 const I18N_DATA = {
     ko: {
-        app_title: "Global Time v3.2.8",
-        nav_live: "실시간 시간",
-        nav_fixed: "고정 시간",
+        app_title: "Global Time v3.2.10",
+        nav_live: "실시간",
+        nav_fixed: "시간 변경",
         nav_calc: "계산기 도구",
         status_sync: "실시간 동기화",
         status_fixed: "고정 시간 모드",
@@ -143,9 +143,9 @@ const I18N_DATA = {
         prompt_rename_group: "그룹 이름 변경:"
     },
     en: {
-        app_title: "Global Time v3.2.8",
-        nav_live: "Real-time",
-        nav_fixed: "Fixed Time",
+        app_title: "Global Time v3.2.10",
+        nav_live: "Realtime",
+        nav_fixed: "Time Edit",
         nav_calc: "Calculator",
         status_sync: "Real-time sync",
         status_fixed: "Fixed mode",
