@@ -2,7 +2,6 @@
 let globalTimes = [new Date(), new Date()];
 let slotCount = 1;
 let uiScale = 1.0;
-let baseTimezoneId = "utc";
 let showTimeAdjust = false;
 let showCopyFormat = false;
 let ignoreDST = false;
@@ -33,7 +32,7 @@ let copyFormatOrder = [...COPY_FORMAT_KEYS];
 let copyFormatEnabled = { ...DEFAULT_COPY_FORMAT_ENABLED };
 let currentMainTab = "live";
 let activeGroupIdByMainTab = { live: 0, fixed: 0 };
-const VERSION = "3.2.3";
+const VERSION = "3.2.4";
 const STORAGE_KEY = "GTV_v323_Data";
 const THEME_STORAGE_KEY = "GTV_Theme";
 const LANG_STORAGE_KEY = "GTV_Lang";
@@ -41,6 +40,7 @@ const LEGACY_STORAGE_KEYS = ["GTV_v322_Data", "GTV_v321_Data", "GTV_v320_Data", 
 const THEME_LIST = ["dark", "light"];
 const TABLE_IMAGE_EXPORT_WIDTH = 1920;
 let currentTheme = "dark";
+const TIMEZONE_VALIDATION_CACHE = new Map();
 
 function applyVersionBranding() {
     const titleText = `Global Time v${VERSION}`;
@@ -111,8 +111,29 @@ function createTimezoneListItem(tzData, closeOverlay = false) {
     return item;
 }
 
+function getCurrentGroup() {
+    return groups[activeGroupId] || null;
+}
+
+function sanitizeBaseTimezoneId(value) {
+    return (typeof value === "string" && value.trim()) ? value.trim() : "utc";
+}
+
+function getCurrentGroupBaseTimezoneId() {
+    const group = getCurrentGroup();
+    if (!group) return "utc";
+    return sanitizeBaseTimezoneId(group.baseTimezoneId);
+}
+
+function setCurrentGroupBaseTimezoneId(value) {
+    const group = getCurrentGroup();
+    if (!group) return false;
+    group.baseTimezoneId = sanitizeBaseTimezoneId(value);
+    return true;
+}
+
 function getCurrentGroupZones() {
-    return groups[activeGroupId]?.zones || [];
+    return getCurrentGroup()?.zones || [];
 }
 
 function getZoneDisplayName(tz) {
@@ -139,9 +160,15 @@ function getZoneAbbreviation(tz, date = globalTimes[0]) {
 }
 
 function ensureBaseTimezoneSelection() {
-    if (baseTimezoneId === "utc") return;
-    const exists = getCurrentGroupZones().some(z => z.id === baseTimezoneId);
-    if (!exists) baseTimezoneId = "utc";
+    const group = getCurrentGroup();
+    if (!group) return;
+    const currentBaseTimezoneId = getCurrentGroupBaseTimezoneId();
+    if (currentBaseTimezoneId === "utc") {
+        group.baseTimezoneId = "utc";
+        return;
+    }
+    const exists = (group.zones || []).some(z => z.id === currentBaseTimezoneId);
+    if (!exists) group.baseTimezoneId = "utc";
 }
 
 function getUTCRef() {
@@ -150,8 +177,9 @@ function getUTCRef() {
 
 function getBaseTimezoneRef() {
     ensureBaseTimezoneSelection();
-    if (baseTimezoneId === "utc") return getUTCRef();
-    const tz = getCurrentGroupZones().find(z => z.id === baseTimezoneId);
+    const currentBaseTimezoneId = getCurrentGroupBaseTimezoneId();
+    if (currentBaseTimezoneId === "utc") return getUTCRef();
+    const tz = getCurrentGroupZones().find(z => z.id === currentBaseTimezoneId);
     if (!tz) return getUTCRef();
     return tz;
 }
@@ -270,7 +298,8 @@ function initUI() {
         for (let i = 14; i >= -12; i--) {
             const o = document.createElement("option");
             o.value = i;
-            o.textContent = (i >= 0 ? "+" : "") + String(Math.abs(i)).padStart(2, "0");
+            const sign = i > 0 ? "+" : (i < 0 ? "-" : "+");
+            o.textContent = `${sign}${String(Math.abs(i)).padStart(2, "0")}`;
             if (i === 0) o.selected = true;
             hSel.appendChild(o);
         }
@@ -342,7 +371,7 @@ function initUI() {
     const baseTimeSelect = document.getElementById("base-time-select");
     if (baseTimeSelect) {
         baseTimeSelect.onchange = (e) => {
-            baseTimezoneId = e.target.value || "utc";
+            setCurrentGroupBaseTimezoneId(e.target.value || "utc");
             renderList();
             updateTimeAdjustPanel();
             savePersistence();
@@ -364,7 +393,7 @@ function initUI() {
     document.getElementById("add-group-btn").onclick = () => {
         const name = prompt(t("prompt_new_group"), "그룹");
         if (name) {
-            groups.push({ name, zones: [] });
+            groups.push({ name, zones: [], baseTimezoneId: "utc" });
             activeGroupId = groups.length - 1;
             if (currentMainTab === "live" || currentMainTab === "fixed") {
                 activeGroupIdByMainTab[currentMainTab] = activeGroupId;
@@ -570,7 +599,7 @@ function renderBaseTimeSelect() {
     if (!select) return;
 
     ensureBaseTimezoneSelection();
-    const selectedBefore = baseTimezoneId;
+    const selectedBefore = getCurrentGroupBaseTimezoneId();
     select.innerHTML = "";
 
     const utcOption = document.createElement("option");
@@ -585,9 +614,10 @@ function renderBaseTimeSelect() {
         select.appendChild(option);
     });
 
-    baseTimezoneId = [...select.options].some(o => o.value === selectedBefore) ? selectedBefore : "utc";
-    select.value = baseTimezoneId;
-    if (baseTimezoneId !== selectedBefore) savePersistence();
+    const selectedNext = [...select.options].some(o => o.value === selectedBefore) ? selectedBefore : "utc";
+    setCurrentGroupBaseTimezoneId(selectedNext);
+    select.value = selectedNext;
+    if (selectedNext !== selectedBefore) savePersistence();
     adjustSelectWidthForContent(select, 220);
 }
 
@@ -1198,12 +1228,16 @@ function isTimeZoneInDST(zone, date) {
 }
 
 function getTimezoneOffset(zone, date) {
-    const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(date);
-    const offStr = parts.find(p => p.type === "timeZoneName")?.value || "GMT+0";
-    const m = offStr.match(/[+-](\d{1,2}):?(\d{2})?/);
-    if (!m) return 0;
-    const sign = offStr.includes("+") ? 1 : -1;
-    return sign * (parseInt(m[1]) * 60 + parseInt(m[2] || 0));
+    try {
+        const parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, timeZoneName: "longOffset" }).formatToParts(date);
+        const offStr = parts.find(p => p.type === "timeZoneName")?.value || "GMT+0";
+        const m = offStr.match(/[+-](\d{1,2}):?(\d{2})?/);
+        if (!m) return 0;
+        const sign = offStr.includes("+") ? 1 : -1;
+        return sign * (parseInt(m[1]) * 60 + parseInt(m[2] || 0));
+    } catch (err) {
+        return 0;
+    }
 }
 
 function getFixedOffsetForDisplay(tz) {
@@ -1674,6 +1708,10 @@ function addFromSearchWithData(zone) {
 function addTimezone(tz) {
     const activeGroup = groups[activeGroupId];
     if (!activeGroup) return;
+    if (tz?.type === "standard" && !isValidTimeZone(tz.zone)) {
+        showToast(t("toast_invalid_timezone"));
+        return;
+    }
     activeGroup.zones.push(tz);
     savePersistence();
     renderList();
@@ -1682,7 +1720,7 @@ function addTimezone(tz) {
 function removeTimezone(id) {
     const activeGroup = groups[activeGroupId];
     if (!activeGroup) return;
-    if (id === baseTimezoneId) return;
+    if (id === getCurrentGroupBaseTimezoneId()) return;
     activeGroup.zones = activeGroup.zones.filter(z => z.id !== id);
     savePersistence();
     renderList();
@@ -2389,7 +2427,7 @@ function getPersistenceSnapshot() {
         currentMainTab,
         activeGroupIdByMainTab,
         slotCount,
-        baseTimezoneId,
+        baseTimezoneId: getCurrentGroupBaseTimezoneId(),
         showTimeAdjust,
         ignoreDST,
         showCopyFormat,
@@ -2513,7 +2551,8 @@ function resetAllSettings() {
 function getDefaultGroups() {
     return [{
         name: t("default_group_name"),
-        zones: []
+        zones: [],
+        baseTimezoneId: "utc"
     }];
 }
 
@@ -2536,7 +2575,7 @@ function sanitizeTimezoneZone(zone) {
     }
 
     const timeZoneName = (typeof zone.zone === "string" && zone.zone.trim()) ? zone.zone : null;
-    if (!timeZoneName) return null;
+    if (!timeZoneName || !isValidTimeZone(timeZoneName)) return null;
     const fallbackName = (typeof zone.name === "string" && zone.name.trim()) ? zone.name.trim() : timeZoneName;
     return {
         id,
@@ -2547,11 +2586,34 @@ function sanitizeTimezoneZone(zone) {
     };
 }
 
+function isValidTimeZone(zoneName) {
+    const normalized = (typeof zoneName === "string") ? zoneName.trim() : "";
+    if (!normalized) return false;
+    if (TIMEZONE_VALIDATION_CACHE.has(normalized)) {
+        return TIMEZONE_VALIDATION_CACHE.get(normalized);
+    }
+    let valid = false;
+    try {
+        new Intl.DateTimeFormat("en-US", { timeZone: normalized }).format(new Date());
+        valid = true;
+    } catch (err) {
+        valid = false;
+    }
+    TIMEZONE_VALIDATION_CACHE.set(normalized, valid);
+    return valid;
+}
+
 function sanitizeGroup(group, idx) {
     if (!group || typeof group !== "object") return null;
     const zones = Array.isArray(group.zones) ? group.zones.map(sanitizeTimezoneZone).filter(Boolean) : [];
     const name = (typeof group.name === "string" && group.name.trim()) ? group.name.trim() : `${t("default_group_name")} ${idx + 1}`;
-    return { name, zones };
+    const requestedBaseTimezoneId = sanitizeBaseTimezoneId(group.baseTimezoneId);
+    const isBaseTimezoneValid = requestedBaseTimezoneId === "utc" || zones.some(z => z.id === requestedBaseTimezoneId);
+    return {
+        name,
+        zones,
+        baseTimezoneId: isBaseTimezoneValid ? requestedBaseTimezoneId : "utc"
+    };
 }
 
 function loadPersistence() {
@@ -2572,7 +2634,6 @@ function loadPersistence() {
         currentMainTab = "live";
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
-        baseTimezoneId = "utc";
         showTimeAdjust = false;
         ignoreDST = false;
         showCopyFormat = false;
@@ -2588,6 +2649,14 @@ function loadPersistence() {
         const d = JSON.parse(s);
         const parsedGroups = Array.isArray(d?.groups) ? d.groups.map(sanitizeGroup).filter(Boolean) : [];
         groups = parsedGroups.length ? parsedGroups : getDefaultGroups();
+        const rawGroups = Array.isArray(d?.groups) ? d.groups : [];
+        const legacyGlobalBaseTimezoneId = sanitizeBaseTimezoneId(d?.baseTimezoneId);
+        groups.forEach((group, idx) => {
+            const rawGroup = rawGroups[idx];
+            const hasGroupSpecificBase = typeof rawGroup?.baseTimezoneId === "string" && rawGroup.baseTimezoneId.trim();
+            if (hasGroupSpecificBase || legacyGlobalBaseTimezoneId === "utc") return;
+            group.baseTimezoneId = group.zones.some(z => z.id === legacyGlobalBaseTimezoneId) ? legacyGlobalBaseTimezoneId : "utc";
+        });
 
         const parsedActiveGroupId = parseInt(d?.activeGroupId, 10);
         activeGroupId = Number.isFinite(parsedActiveGroupId) ? Math.min(Math.max(parsedActiveGroupId, 0), groups.length - 1) : 0;
@@ -2607,7 +2676,6 @@ function loadPersistence() {
         const parsedSlotCount = parseInt(d?.slotCount, 10);
         slotCount = Math.min(2, Math.max(1, Number.isFinite(parsedSlotCount) ? parsedSlotCount : 1));
 
-        baseTimezoneId = (typeof d?.baseTimezoneId === "string" && d.baseTimezoneId.trim()) ? d.baseTimezoneId : "utc";
         showTimeAdjust = !!d?.showTimeAdjust;
         ignoreDST = !!d?.ignoreDST;
         showCopyFormat = !!d?.showCopyFormat;
@@ -2647,7 +2715,6 @@ function loadPersistence() {
         currentMainTab = "live";
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
-        baseTimezoneId = "utc";
         showTimeAdjust = false;
         ignoreDST = false;
         showCopyFormat = false;
