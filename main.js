@@ -1,10 +1,9 @@
-﻿let isRealtime = true;
+let isRealtime = true;
 let globalTimes = [new Date(), new Date()];
 let slotCount = 1;
 let uiScale = 1.0;
-let showTimeAdjust = false;
+let showTimeAdjust = true;
 let showCopyFormat = false;
-let ignoreDST = true;
 const COPY_FORMAT_KEYS = ["timezone", "region", "offset", "time", "period_days", "period_time"];
 const TIME_PART_KEYS = ["dn", "date", "time", "weekday"];
 const PERIOD_RESULT_IDS = new Set(["period-res", "period-hour-res", "period-min-res", "period-sec-res"]);
@@ -13,8 +12,8 @@ const MIN_TIME_ADJUST_DAY_STEP = 1;
 const MAX_TIME_ADJUST_DAY_STEP = 36500;
 const DEFAULT_TIME_ADJUST_DAY_STEP = 1;
 const MIN_MULTI_RANGE_COUNT = 1;
-const MAX_MULTI_RANGE_COUNT = 100;
-const DEFAULT_MULTI_RANGE_TITLE = "구간";
+const MAX_MULTI_RANGE_COUNT = 12;
+const DEFAULT_MULTI_RANGE_TITLE = "Range";
 const DEFAULT_DISPLAY_FORMAT_ENABLED = {
     timezone: true,
     region: true,
@@ -51,12 +50,14 @@ let displayTimePartsEnabled = { ...DEFAULT_DISPLAY_TIME_PARTS_ENABLED };
 let copyTimePartsEnabled = { ...DEFAULT_COPY_TIME_PARTS_ENABLED };
 let timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
 let multiRangeCount = 1;
-let multiRangeTitle = DEFAULT_MULTI_RANGE_TITLE;
+let multiRangeTitle = t("placeholder_range_title");
 let multiRanges = [];
 let multiRangeCollapsed = [];
+let multiRangeStartEditEnabled = [];
+let multiRangeEndEditEnabled = [];
 let currentMainTab = "live";
 let activeGroupIdByMainTab = { live: 0, fixed: 0 };
-const VERSION = "3.3.1";
+const VERSION = "3.4.3";
 const STORAGE_KEY = "GTV_v323_Data";
 const THEME_STORAGE_KEY = "GTV_Theme";
 const LANG_STORAGE_KEY = "GTV_Lang";
@@ -74,12 +75,159 @@ const TIMEZONE_VALIDATION_CACHE = new Map();
 let canUseForeignObjectRenderer = null;
 let timePartsOutsideHandlerBound = false;
 let timezoneIdSeed = 0;
+let multiSubgroupIdSeed = 0;
+let pendingGroupImportIndex = null;
+let pendingSubgroupImportTarget = null;
+let floatingTooltipEl = null;
+let floatingTooltipTarget = null;
+let floatingTooltipBound = false;
+let standardTimezoneEntriesCache = null;
+let standardTimezoneEntriesCacheYear = null;
+let standardTimezoneWarmupQueued = false;
+let fullTimezoneOverlayStandardEntries = [];
+let fullTimezoneOverlayCountryEntries = [];
+let fullTimezoneOverlayActiveTab = "standard";
+let lastPersistenceErrorToastAt = 0;
 
 function applyVersionBranding() {
     const titleText = `Global Time v${VERSION}`;
     document.title = titleText;
     const badge = document.getElementById("version-badge");
     if (badge) badge.textContent = `ver ${VERSION}`;
+}
+
+function setCustomTooltip(el, text) {
+    if (!(el instanceof Element)) return;
+    const tooltip = (typeof text === "string") ? text.trim() : "";
+    if (!tooltip) {
+        el.removeAttribute("data-tooltip");
+        if (!el.classList.contains("info-tip")) el.classList.remove("custom-tooltip");
+        el.removeAttribute("title");
+        return;
+    }
+    el.setAttribute("data-tooltip", tooltip);
+    el.setAttribute("aria-label", tooltip);
+    el.removeAttribute("title");
+    if (!el.classList.contains("info-tip")) el.classList.add("custom-tooltip");
+}
+
+function upgradeNativeTitleTooltips(root = document) {
+    if (!root) return;
+    const candidates = root.querySelectorAll(
+        'button.copy-row-btn[title], button.remove-row-btn[title]'
+    );
+    candidates.forEach((el) => {
+        const text = (el.getAttribute("title") || "").trim();
+        if (!text) {
+            el.removeAttribute("title");
+            return;
+        }
+        setCustomTooltip(el, text);
+    });
+}
+
+function ensureFloatingTooltipElement() {
+    if (floatingTooltipEl && floatingTooltipEl.isConnected) return floatingTooltipEl;
+    const tooltip = document.createElement("div");
+    tooltip.className = "app-floating-tooltip";
+    tooltip.id = "app-floating-tooltip";
+    document.body.appendChild(tooltip);
+    floatingTooltipEl = tooltip;
+    return tooltip;
+}
+
+function hideFloatingTooltip() {
+    if (floatingTooltipEl) floatingTooltipEl.classList.remove("visible");
+    floatingTooltipTarget = null;
+}
+
+function positionFloatingTooltip() {
+    if (!floatingTooltipEl || !floatingTooltipTarget) return;
+    if (!(floatingTooltipTarget instanceof Element) || !floatingTooltipTarget.isConnected) {
+        hideFloatingTooltip();
+        return;
+    }
+
+    const targetRect = floatingTooltipTarget.getBoundingClientRect();
+    floatingTooltipEl.style.left = "0px";
+    floatingTooltipEl.style.top = "0px";
+    const tooltipRect = floatingTooltipEl.getBoundingClientRect();
+    const viewportPadding = 8;
+    const offset = 10;
+
+    let left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+    left = Math.min(
+        window.innerWidth - tooltipRect.width - viewportPadding,
+        Math.max(viewportPadding, left)
+    );
+
+    let top = targetRect.top - tooltipRect.height - offset;
+    if (top < viewportPadding) {
+        top = targetRect.bottom + offset;
+    }
+    top = Math.min(
+        window.innerHeight - tooltipRect.height - viewportPadding,
+        Math.max(viewportPadding, top)
+    );
+
+    floatingTooltipEl.style.left = `${Math.round(left)}px`;
+    floatingTooltipEl.style.top = `${Math.round(top)}px`;
+}
+
+function showFloatingTooltip(target) {
+    if (!(target instanceof Element)) {
+        hideFloatingTooltip();
+        return;
+    }
+    const text = (target.getAttribute("data-tooltip") || "").trim();
+    if (!text) {
+        hideFloatingTooltip();
+        return;
+    }
+
+    const tooltip = ensureFloatingTooltipElement();
+    tooltip.textContent = text;
+    floatingTooltipTarget = target;
+    tooltip.classList.add("visible");
+    positionFloatingTooltip();
+}
+
+function bindFloatingTooltipEvents() {
+    if (floatingTooltipBound) return;
+    floatingTooltipBound = true;
+
+    document.addEventListener("pointerenter", (e) => {
+        const target = e.target instanceof Element ? e.target.closest("[data-tooltip]") : null;
+        if (!target) return;
+        showFloatingTooltip(target);
+    }, true);
+
+    document.addEventListener("pointerleave", (e) => {
+        const target = e.target instanceof Element ? e.target.closest("[data-tooltip]") : null;
+        if (!target) return;
+        const relatedTarget = e.relatedTarget;
+        if (relatedTarget instanceof Element && target.contains(relatedTarget)) return;
+        if (floatingTooltipTarget === target) hideFloatingTooltip();
+    }, true);
+
+    document.addEventListener("focusin", (e) => {
+        const target = e.target instanceof Element ? e.target.closest("[data-tooltip]") : null;
+        if (!target) return;
+        showFloatingTooltip(target);
+    }, true);
+
+    document.addEventListener("focusout", (e) => {
+        const target = e.target instanceof Element ? e.target.closest("[data-tooltip]") : null;
+        if (!target) return;
+        const relatedTarget = e.relatedTarget;
+        if (relatedTarget instanceof Element && target.contains(relatedTarget)) return;
+        if (floatingTooltipTarget === target) hideFloatingTooltip();
+    }, true);
+
+    window.addEventListener("scroll", positionFloatingTooltip, true);
+    window.addEventListener("resize", positionFloatingTooltip, true);
+    document.addEventListener("pointerdown", hideFloatingTooltip, true);
+    document.addEventListener("keydown", hideFloatingTooltip, true);
 }
 
 // --- ??꾩〈 留댮곎궿둘 ?곗씠??(Extensive Mapping for Abbr) ---
@@ -117,6 +265,209 @@ function getLocalizedTZLabel(tzData) {
     return `${tzData.name} - ${tzData.city}`;
 }
 
+function formatUtcOffsetLabel(totalMinutes = 0) {
+    const safeMinutes = Number.isFinite(Number(totalMinutes)) ? Math.trunc(Number(totalMinutes)) : 0;
+    const sign = safeMinutes >= 0 ? "+" : "-";
+    const abs = Math.abs(safeMinutes);
+    const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+    const mm = String(abs % 60).padStart(2, "0");
+    return `UTC${sign}${hh}:${mm}`;
+}
+
+function getZoneStandardDaylightOffsets(zone) {
+    const safeZone = (typeof zone === "string") ? zone.trim() : "";
+    if (!safeZone) return { standard: null, daylight: null };
+    try {
+        const now = new Date();
+        const year = now.getUTCFullYear();
+        const jan = new Date(Date.UTC(year, 0, 1, 12, 0, 0));
+        const jul = new Date(Date.UTC(year, 6, 1, 12, 0, 0));
+        const janOffset = getTimezoneOffset(safeZone, jan);
+        const julOffset = getTimezoneOffset(safeZone, jul);
+        if (!Number.isFinite(janOffset) || !Number.isFinite(julOffset)) {
+            return { standard: null, daylight: null };
+        }
+        if (janOffset === julOffset) {
+            return { standard: janOffset, daylight: null };
+        }
+        return {
+            standard: Math.min(janOffset, julOffset),
+            daylight: Math.max(janOffset, julOffset)
+        };
+    } catch (err) {
+        return { standard: null, daylight: null };
+    }
+}
+
+function normalizeZoneAbbreviation(value) {
+    return String(value || "").replace("GMT", "UTC").trim().toUpperCase();
+}
+
+function getAllSupportedTimezoneNames() {
+    try {
+        if (typeof Intl !== "undefined" && typeof Intl.supportedValuesOf === "function") {
+            const values = Intl.supportedValuesOf("timeZone");
+            if (Array.isArray(values) && values.length) return values;
+        }
+    } catch (err) {
+        // Fallback below.
+    }
+    const fallback = new Set(["UTC"]);
+    TZ_DATABASE.forEach((tzData) => {
+        if (tzData?.zone) fallback.add(tzData.zone);
+    });
+    return [...fallback];
+}
+
+function getSelectableTZEntries() {
+    const entries = [];
+    getSortedTZData(TZ_DATABASE).forEach((tzData) => {
+        const mapping = ZONE_MAP[tzData.zone];
+        if (Array.isArray(mapping) && mapping.length >= 2) {
+            const offsets = getZoneStandardDaylightOffsets(tzData.zone);
+            if (Number.isFinite(offsets.daylight) && Number.isFinite(offsets.standard) && offsets.daylight !== offsets.standard) {
+                entries.push({
+                    ...tzData,
+                    kind: "country_region",
+                    key: `${tzData.zone}|dst`,
+                    abbr: normalizeZoneAbbreviation(mapping[1]),
+                    fixedOffsetMinutes: offsets.daylight
+                });
+                entries.push({
+                    ...tzData,
+                    kind: "country_region",
+                    key: `${tzData.zone}|std`,
+                    abbr: normalizeZoneAbbreviation(mapping[0]),
+                    fixedOffsetMinutes: offsets.standard
+                });
+                return;
+            }
+        }
+
+        const baseAbbr = Array.isArray(mapping)
+            ? normalizeZoneAbbreviation(mapping[0])
+            : normalizeZoneAbbreviation(mapping || getBetterAbbr(tzData.zone, new Date()));
+        entries.push({
+            ...tzData,
+            kind: "country_region",
+            key: `${tzData.zone}|auto`,
+            abbr: baseAbbr || normalizeZoneAbbreviation(getBetterAbbr(tzData.zone, new Date())),
+            fixedOffsetMinutes: null
+        });
+    });
+    return entries;
+}
+
+function getStandardTimezoneEntries() {
+    const now = new Date();
+    const currentYear = now.getUTCFullYear();
+    if (standardTimezoneEntriesCacheYear === currentYear && Array.isArray(standardTimezoneEntriesCache)) {
+        return standardTimezoneEntriesCache.map((entry) => ({ ...entry }));
+    }
+
+    const entries = [];
+    const seen = new Set();
+
+    const pushEntry = (abbrValue, offsetMinutes, zone = "UTC") => {
+        if (!Number.isFinite(offsetMinutes)) return;
+        const safeOffset = Math.min(14 * 60, Math.max(-14 * 60, Math.trunc(offsetMinutes)));
+        const abbr = normalizeZoneAbbreviation(abbrValue) || formatUtcOffsetLabel(safeOffset);
+        const dedupeKey = `${abbr}|${safeOffset}`;
+        if (seen.has(dedupeKey)) return;
+        seen.add(dedupeKey);
+        entries.push({
+            kind: "standard_list",
+            key: `std:${abbr}:${safeOffset}`,
+            zone,
+            abbr,
+            fixedOffsetMinutes: safeOffset
+        });
+    };
+
+    pushEntry("UTC", 0, "UTC");
+
+    const janDate = new Date(Date.UTC(currentYear, 0, 1, 12, 0, 0));
+    const julDate = new Date(Date.UTC(currentYear, 6, 1, 12, 0, 0));
+    getAllSupportedTimezoneNames().forEach((zone) => {
+        if (zone === "UTC") return;
+        const janOffset = getTimezoneOffset(zone, janDate);
+        const julOffset = getTimezoneOffset(zone, julDate);
+        if (!Number.isFinite(janOffset) || !Number.isFinite(julOffset)) return;
+
+        const janAbbr = normalizeZoneAbbreviation(getBetterAbbr(zone, janDate)) || formatUtcOffsetLabel(janOffset);
+        const julAbbr = normalizeZoneAbbreviation(getBetterAbbr(zone, julDate)) || formatUtcOffsetLabel(julOffset);
+
+        if (janOffset === julOffset) {
+            pushEntry(janAbbr, janOffset, zone);
+            return;
+        }
+
+        const standardOffset = Math.min(janOffset, julOffset);
+        const daylightOffset = Math.max(janOffset, julOffset);
+        const standardAbbr = (janOffset === standardOffset) ? janAbbr : julAbbr;
+        const daylightAbbr = (janOffset === daylightOffset) ? janAbbr : julAbbr;
+        pushEntry(daylightAbbr, daylightOffset, zone);
+        pushEntry(standardAbbr, standardOffset, zone);
+    });
+
+    const sorted = entries.sort((a, b) => {
+        const diff = a.fixedOffsetMinutes - b.fixedOffsetMinutes;
+        if (diff !== 0) return diff;
+        return a.abbr.localeCompare(b.abbr, "en-US", { sensitivity: "base" });
+    });
+    standardTimezoneEntriesCache = sorted.map((entry) => ({ ...entry }));
+    standardTimezoneEntriesCacheYear = currentYear;
+    return sorted;
+}
+
+function queueStandardTimezoneWarmup() {
+    const currentYear = new Date().getUTCFullYear();
+    if (standardTimezoneEntriesCacheYear === currentYear && Array.isArray(standardTimezoneEntriesCache)) return;
+    if (standardTimezoneWarmupQueued) return;
+    standardTimezoneWarmupQueued = true;
+
+    const warmup = () => {
+        standardTimezoneWarmupQueued = false;
+        try {
+            getStandardTimezoneEntries();
+        } catch (err) {
+            console.warn("Failed to warm up standard timezone cache.", err);
+        }
+    };
+
+    if (typeof window !== "undefined" && typeof window.requestIdleCallback === "function") {
+        window.requestIdleCallback(warmup, { timeout: 1200 });
+        return;
+    }
+    if (typeof window !== "undefined" && typeof window.setTimeout === "function") {
+        window.setTimeout(warmup, 120);
+        return;
+    }
+    warmup();
+}
+
+function getTimezoneEntryTitle(entry) {
+    if (entry?.kind === "standard_list") {
+        const offsetLabel = formatUtcOffsetLabel(entry.fixedOffsetMinutes);
+        return currentLang === "en" ? `${offsetLabel} Standard Time` : `${offsetLabel} 표준시`;
+    }
+    return getLocalizedTZLabel(entry);
+}
+
+function getSelectableTZEntryByKey(entryKey) {
+    const key = (typeof entryKey === "string") ? entryKey.trim() : "";
+    if (!key) return null;
+    const countryEntry = getSelectableTZEntries().find((entry) => entry.key === key);
+    if (countryEntry) return countryEntry;
+    return getStandardTimezoneEntries().find((entry) => entry.key === key) || null;
+}
+
+function getSelectableTZOptionLabel(entry) {
+    const line1 = getTimezoneEntryTitle(entry);
+    const abbr = normalizeZoneAbbreviation(entry?.abbr);
+    return abbr ? `${line1} [${abbr}]` : line1;
+}
+
 function getSortedTZData(list) {
     const locale = currentLang === "en" ? "en-US" : "ko-KR";
     return [...list].sort((a, b) =>
@@ -130,18 +481,66 @@ function normalizeCustomAbbr(value) {
     return trimmed.toUpperCase().slice(0, 12);
 }
 
-function createTimezoneListItem(tzData, closeOverlay = false) {
+function createTimezoneListItem(tzEntry, closeOverlay = false) {
     const item = document.createElement("div");
     item.className = "tz-item";
-    item.textContent = getLocalizedTZLabel(tzData);
+    const title = document.createElement("div");
+    title.className = "tz-item-title";
+    title.textContent = getTimezoneEntryTitle(tzEntry);
+    const abbr = document.createElement("div");
+    abbr.className = "tz-item-abbr";
+    const abbrText = tzEntry?.kind === "standard_list"
+        ? formatUtcOffsetLabel(tzEntry?.fixedOffsetMinutes)
+        : (
+            normalizeZoneAbbreviation(tzEntry?.abbr)
+            || normalizeZoneAbbreviation(getBetterAbbr(tzEntry?.zone, new Date()))
+            || "UTC"
+        );
+    abbr.textContent = `[${abbrText}]`;
+    item.appendChild(title);
+    item.appendChild(abbr);
     item.addEventListener("click", () => {
-        addFromSearchWithData(tzData.zone);
+        addFromSearchWithData(tzEntry.key);
         if (closeOverlay) {
             const overlay = document.getElementById("full-tz-overlay");
             if (overlay) overlay.style.display = "none";
         }
     });
     return item;
+}
+
+function sanitizeFullTimezoneOverlayTab(value) {
+    return value === "country" ? "country" : "standard";
+}
+
+function renderFullTimezoneOverlayList() {
+    const list = document.getElementById("full-tz-list");
+    if (!list) return;
+
+    list.innerHTML = "";
+    const entries = fullTimezoneOverlayActiveTab === "country"
+        ? fullTimezoneOverlayCountryEntries
+        : fullTimezoneOverlayStandardEntries;
+    entries.forEach((entry) => list.appendChild(createTimezoneListItem(entry, true)));
+}
+
+function updateFullTimezoneOverlayTabButtons() {
+    const standardTabBtn = document.getElementById("tz-tab-standard");
+    const countryTabBtn = document.getElementById("tz-tab-country");
+    if (standardTabBtn) {
+        standardTabBtn.classList.toggle("active", fullTimezoneOverlayActiveTab === "standard");
+        standardTabBtn.setAttribute("aria-selected", fullTimezoneOverlayActiveTab === "standard" ? "true" : "false");
+    }
+    if (countryTabBtn) {
+        countryTabBtn.classList.toggle("active", fullTimezoneOverlayActiveTab === "country");
+        countryTabBtn.setAttribute("aria-selected", fullTimezoneOverlayActiveTab === "country" ? "true" : "false");
+    }
+}
+
+function setFullTimezoneOverlayTab(value) {
+    fullTimezoneOverlayActiveTab = sanitizeFullTimezoneOverlayTab(value);
+    updateFullTimezoneOverlayTabButtons();
+    renderFullTimezoneOverlayList();
 }
 
 function getCurrentGroup() {
@@ -205,6 +604,278 @@ function createUniqueTimezoneId(prefix = "tz") {
     return `${normalizedPrefix}-${Date.now()}-${Math.floor(Math.random() * 1000000000)}`;
 }
 
+function sanitizeMultiSubgroupId(value) {
+    return (typeof value === "string" && value.trim()) ? value.trim() : "";
+}
+
+function sanitizeMultiSubgroupName(value, fallback = "") {
+    const trimmed = (typeof value === "string" ? value : "").trim();
+    if (trimmed) return trimmed.slice(0, 60);
+    const fallbackTrimmed = (typeof fallback === "string" ? fallback : "").trim();
+    if (fallbackTrimmed) return fallbackTrimmed.slice(0, 60);
+    return t("default_subgroup_name");
+}
+
+function getDefaultMultiSubgroupName(index = 0) {
+    const base = t("default_subgroup_name");
+    return `${base} ${index + 1}`;
+}
+
+function parseAutoGeneratedIndexedName(name, baseCandidates = []) {
+    const text = (typeof name === "string") ? name.trim() : "";
+    if (!text) return { matched: false, number: null };
+
+    for (const base of baseCandidates) {
+        const safeBase = String(base || "").trim();
+        if (!safeBase) continue;
+        if (text === safeBase) {
+            return { matched: true, number: null };
+        }
+        const escapedBase = safeBase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const matched = text.match(new RegExp(`^${escapedBase}\\s+(\\d+)$`));
+        if (matched) {
+            return { matched: true, number: parseInt(matched[1], 10) };
+        }
+    }
+    return { matched: false, number: null };
+}
+
+function localizeAutoGeneratedNamesForCurrentLanguage() {
+    if (!Array.isArray(groups) || !groups.length) return false;
+    let changed = false;
+
+    const groupBaseCandidates = ["Default Group", "기본 그룹"];
+    const subgroupBaseCandidates = ["Subgroup", "Aux Group", "서브 그룹", "보조 그룹"];
+    const nextGroupBase = t("default_group_name");
+    const nextSubgroupBase = t("default_subgroup_name");
+
+    groups.forEach((group, groupIdx) => {
+        if (!group || typeof group !== "object") return;
+        const parsedGroup = parseAutoGeneratedIndexedName(group.name, groupBaseCandidates);
+        if (parsedGroup.matched) {
+            const nextGroupName = Number.isFinite(parsedGroup.number)
+                ? `${nextGroupBase} ${parsedGroup.number}`
+                : nextGroupBase;
+            if (group.name !== nextGroupName) {
+                group.name = nextGroupName;
+                changed = true;
+            }
+        }
+
+        ensureGroupMultiSubgroups(group);
+        group.multiSubgroups.forEach((subgroup, subgroupIdx) => {
+            const parsedSubgroup = parseAutoGeneratedIndexedName(subgroup?.name, subgroupBaseCandidates);
+            if (!parsedSubgroup.matched) return;
+            const nextSubgroupName = Number.isFinite(parsedSubgroup.number)
+                ? `${nextSubgroupBase} ${parsedSubgroup.number}`
+                : `${nextSubgroupBase} ${subgroupIdx + 1}`;
+            if (subgroup.name !== nextSubgroupName) {
+                subgroup.name = nextSubgroupName;
+                changed = true;
+            }
+        });
+    });
+
+    return changed;
+}
+
+function getUsedMultiSubgroupIds() {
+    const usedIds = new Set();
+    groups.forEach((group) => {
+        if (!group || !Array.isArray(group.multiSubgroups)) return;
+        group.multiSubgroups.forEach((subgroup) => {
+            const subgroupId = sanitizeMultiSubgroupId(subgroup?.id);
+            if (subgroupId) usedIds.add(subgroupId);
+        });
+    });
+    return usedIds;
+}
+
+function createUniqueMultiSubgroupId(prefix = "subgroup") {
+    const normalizedPrefix = (typeof prefix === "string" && prefix.trim()) ? prefix.trim() : "subgroup";
+    const usedIds = getUsedMultiSubgroupIds();
+
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+        const uuidId = `${normalizedPrefix}-${crypto.randomUUID()}`;
+        if (!usedIds.has(uuidId)) return uuidId;
+    }
+
+    for (let attempt = 0; attempt < 10000; attempt++) {
+        multiSubgroupIdSeed = (multiSubgroupIdSeed + 1) % 1000000;
+        const candidate = `${normalizedPrefix}-${Date.now()}-${multiSubgroupIdSeed}`;
+        if (!usedIds.has(candidate)) return candidate;
+    }
+
+    return `${normalizedPrefix}-${Date.now()}-${Math.floor(Math.random() * 1000000000)}`;
+}
+
+function sanitizeMultiStatePayload(rawState = null, fallbackState = null) {
+    const defaults = getDefaultMultiRangeBounds();
+    const fallback = fallbackState && typeof fallbackState === "object"
+        ? fallbackState
+        : {
+            multiRangeCount: MIN_MULTI_RANGE_COUNT,
+            multiRanges: [{ startUtcMs: defaults.startMs, endUtcMs: defaults.endMs }],
+            multiRangeCollapsed: [],
+            multiRangeStartEditEnabled: [],
+            multiRangeEndEditEnabled: []
+        };
+
+    const nextCount = sanitizeMultiRangeCount(rawState?.multiRangeCount ?? fallback.multiRangeCount);
+    const sourceRanges = Array.isArray(rawState?.multiRanges)
+        ? rawState.multiRanges
+        : (Array.isArray(fallback.multiRanges) ? fallback.multiRanges : []);
+    const sourceCollapsed = Array.isArray(rawState?.multiRangeCollapsed)
+        ? rawState.multiRangeCollapsed
+        : (Array.isArray(fallback.multiRangeCollapsed) ? fallback.multiRangeCollapsed : []);
+    const sourceStartEdit = Array.isArray(rawState?.multiRangeStartEditEnabled)
+        ? rawState.multiRangeStartEditEnabled
+        : (Array.isArray(fallback.multiRangeStartEditEnabled) ? fallback.multiRangeStartEditEnabled : []);
+    const sourceEndEdit = Array.isArray(rawState?.multiRangeEndEditEnabled)
+        ? rawState.multiRangeEndEditEnabled
+        : (Array.isArray(fallback.multiRangeEndEditEnabled) ? fallback.multiRangeEndEditEnabled : []);
+
+    let nextRanges = sourceRanges
+        .map((item) => sanitizeMultiRangeItem(item, defaults.startMs, defaults.endMs))
+        .slice(0, nextCount);
+    if (!nextRanges.length) {
+        const fallbackRange = sanitizeMultiRangeItem(sourceRanges[0], defaults.startMs, defaults.endMs);
+        nextRanges = [fallbackRange];
+    }
+
+    const firstDuration = nextRanges[0].endUtcMs - nextRanges[0].startUtcMs;
+    while (nextRanges.length < nextCount) {
+        const prev = nextRanges[nextRanges.length - 1];
+        const startUtcMs = prev.endUtcMs;
+        nextRanges.push({
+            startUtcMs,
+            endUtcMs: startUtcMs + firstDuration
+        });
+    }
+
+    const nextCollapsed = Array.from({ length: nextCount }, (_, idx) => !!sourceCollapsed[idx]);
+    const nextStartEditEnabled = Array.from({ length: nextCount }, (_, idx) => (idx === 0 ? false : !!sourceStartEdit[idx]));
+    const nextEndEditEnabled = Array.from({ length: nextCount }, (_, idx) =>
+        (sourceEndEdit[idx] === undefined ? true : !!sourceEndEdit[idx])
+    );
+
+    nextRanges[0].startUtcMs = sanitizeUtcMs(nextRanges[0].startUtcMs, defaults.startMs);
+    nextRanges[0].endUtcMs = sanitizeUtcMs(nextRanges[0].endUtcMs, defaults.endMs);
+    for (let i = 1; i < nextRanges.length; i++) {
+        nextRanges[i].startUtcMs = sanitizeUtcMs(nextRanges[i].startUtcMs, nextRanges[i - 1].endUtcMs);
+        if (!nextStartEditEnabled[i]) {
+            nextRanges[i].startUtcMs = nextRanges[i - 1].endUtcMs;
+        }
+        nextRanges[i].endUtcMs = sanitizeUtcMs(nextRanges[i].endUtcMs, nextRanges[i].startUtcMs);
+    }
+
+    return {
+        multiRangeCount: nextCount,
+        multiRanges: nextRanges,
+        multiRangeCollapsed: nextCollapsed,
+        multiRangeStartEditEnabled: nextStartEditEnabled,
+        multiRangeEndEditEnabled: nextEndEditEnabled
+    };
+}
+
+function createMultiSubgroupState(name = "", index = 0, state = null) {
+    const normalized = sanitizeMultiStatePayload(state, null);
+    return {
+        id: createUniqueMultiSubgroupId(),
+        name: sanitizeMultiSubgroupName(name, getDefaultMultiSubgroupName(index)),
+        ...normalized
+    };
+}
+
+function ensureGroupMultiSubgroups(group, options = {}) {
+    if (!group || typeof group !== "object") return;
+    const { legacyMultiState = null } = options;
+    const rawSubgroups = Array.isArray(group.multiSubgroups) ? group.multiSubgroups : [];
+    const fallbackState = sanitizeMultiStatePayload(legacyMultiState, null);
+
+    let normalizedSubgroups = rawSubgroups.map((subgroup, idx) => {
+        const subgroupState = sanitizeMultiStatePayload(subgroup, fallbackState);
+        return {
+            id: sanitizeMultiSubgroupId(subgroup?.id) || createUniqueMultiSubgroupId(),
+            name: sanitizeMultiSubgroupName(subgroup?.name, getDefaultMultiSubgroupName(idx)),
+            ...subgroupState
+        };
+    });
+
+    if (!normalizedSubgroups.length) {
+        normalizedSubgroups = [{
+            id: createUniqueMultiSubgroupId(),
+            name: sanitizeMultiSubgroupName(group.multiRangeTitle || legacyMultiState?.multiRangeTitle || "", getDefaultMultiSubgroupName(0)),
+            ...fallbackState
+        }];
+    }
+
+    const used = new Set();
+    normalizedSubgroups.forEach((subgroup, idx) => {
+        if (!subgroup.id || used.has(subgroup.id)) subgroup.id = createUniqueMultiSubgroupId();
+        used.add(subgroup.id);
+        subgroup.name = sanitizeMultiSubgroupName(subgroup.name, getDefaultMultiSubgroupName(idx));
+    });
+
+    group.multiSubgroups = normalizedSubgroups;
+    const requestedActiveSubgroupId = sanitizeMultiSubgroupId(group.activeMultiSubgroupId);
+    group.activeMultiSubgroupId = normalizedSubgroups.some((subgroup) => subgroup.id === requestedActiveSubgroupId)
+        ? requestedActiveSubgroupId
+        : normalizedSubgroups[0].id;
+}
+
+function getCurrentGroupMultiSubgroups() {
+    const group = getCurrentGroup();
+    if (!group) return [];
+    ensureGroupMultiSubgroups(group);
+    return group.multiSubgroups;
+}
+
+function getCurrentMultiSubgroup() {
+    const group = getCurrentGroup();
+    if (!group) return null;
+    ensureGroupMultiSubgroups(group);
+    return group.multiSubgroups.find((subgroup) => subgroup.id === group.activeMultiSubgroupId) || group.multiSubgroups[0] || null;
+}
+
+function getCurrentMultiSubgroupName() {
+    const subgroup = getCurrentMultiSubgroup();
+    return sanitizeMultiSubgroupName(subgroup?.name, getDefaultMultiSubgroupName(0));
+}
+
+function syncCurrentMultiStateToActiveSubgroup() {
+    const group = getCurrentGroup();
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+    ensureMultiRangeState();
+
+    const subgroup = getCurrentMultiSubgroup();
+    if (!subgroup) return;
+
+    subgroup.name = sanitizeMultiSubgroupName(subgroup.name, getDefaultMultiSubgroupName(0));
+    subgroup.multiRangeCount = sanitizeMultiRangeCount(multiRangeCount);
+    subgroup.multiRanges = multiRanges.map((range) => ({
+        startUtcMs: sanitizeUtcMs(range.startUtcMs, Date.now()),
+        endUtcMs: sanitizeUtcMs(range.endUtcMs, Date.now())
+    }));
+    subgroup.multiRangeCollapsed = multiRangeCollapsed.map((flag) => !!flag);
+    subgroup.multiRangeStartEditEnabled = multiRangeStartEditEnabled.map((flag) => !!flag);
+    subgroup.multiRangeEndEditEnabled = multiRangeEndEditEnabled.map((flag) => !!flag);
+}
+
+function loadCurrentMultiStateFromActiveSubgroup() {
+    const subgroup = getCurrentMultiSubgroup();
+    const normalized = sanitizeMultiStatePayload(subgroup, null);
+    multiRangeCount = normalized.multiRangeCount;
+    multiRanges = normalized.multiRanges;
+    multiRangeCollapsed = normalized.multiRangeCollapsed;
+    multiRangeStartEditEnabled = normalized.multiRangeStartEditEnabled;
+    multiRangeEndEditEnabled = normalized.multiRangeEndEditEnabled;
+    multiRangeTitle = sanitizeMultiRangeTitle(getCurrentMultiSubgroupName());
+    ensureMultiRangeState();
+    refreshMultiRangeControls();
+}
+
 function isCurrentGroupUtcRowVisible() {
     const group = getCurrentGroup();
     if (!group) return true;
@@ -237,6 +908,8 @@ function getZoneAbbreviation(tz, date = globalTimes[0]) {
     if (!tz) return "";
     if (tz.zone === "UTC") return "UTC";
     if (tz.type === "custom") return normalizeCustomAbbr(tz.abbr);
+    const fixedAbbr = normalizeZoneAbbreviation(tz.fixedAbbr);
+    if (fixedAbbr) return fixedAbbr;
     return getBetterAbbr(tz.zone, date);
 }
 
@@ -346,7 +1019,7 @@ function sanitizeMultiRangeCount(value) {
 
 function sanitizeMultiRangeTitle(value) {
     const text = (typeof value === "string") ? value.trim() : "";
-    if (!text) return DEFAULT_MULTI_RANGE_TITLE;
+    if (!text) return t("placeholder_range_title");
     return text.slice(0, 40);
 }
 
@@ -373,6 +1046,20 @@ function sanitizeMultiRangeItem(rawRange, fallbackStartMs, fallbackEndMs) {
     return { startUtcMs, endUtcMs };
 }
 
+function isMultiRangeStartEditEnabled(rangeIdx) {
+    if (!Number.isInteger(rangeIdx) || rangeIdx <= 0) return false;
+    return !!multiRangeStartEditEnabled[rangeIdx];
+}
+
+function isMultiRangeEndEditEnabled(rangeIdx) {
+    if (!Number.isInteger(rangeIdx) || rangeIdx < 0) return false;
+    return !!multiRangeEndEditEnabled[rangeIdx];
+}
+
+function isMultiRangeStartLinked(rangeIdx) {
+    return rangeIdx > 0 && !isMultiRangeStartEditEnabled(rangeIdx);
+}
+
 function ensureMultiRangeState() {
     multiRangeCount = sanitizeMultiRangeCount(multiRangeCount);
     multiRangeTitle = sanitizeMultiRangeTitle(multiRangeTitle);
@@ -382,6 +1069,12 @@ function ensureMultiRangeState() {
         : [];
     const normalizedCollapsed = Array.isArray(multiRangeCollapsed)
         ? multiRangeCollapsed.map((flag) => !!flag)
+        : [];
+    const normalizedStartEdit = Array.isArray(multiRangeStartEditEnabled)
+        ? multiRangeStartEditEnabled.map((flag) => !!flag)
+        : [];
+    const normalizedEndEdit = Array.isArray(multiRangeEndEditEnabled)
+        ? multiRangeEndEditEnabled.map((flag) => !!flag)
         : [];
 
     let nextRanges = normalized.slice(0, multiRangeCount);
@@ -402,23 +1095,88 @@ function ensureMultiRangeState() {
         });
     }
 
+    const nextStartEditEnabled = Array.from({ length: multiRangeCount }, (_, idx) => (idx === 0 ? false : !!normalizedStartEdit[idx]));
+    const nextEndEditEnabled = Array.from({ length: multiRangeCount }, (_, idx) =>
+        (normalizedEndEdit[idx] === undefined ? true : !!normalizedEndEdit[idx])
+    );
     nextRanges[0].startUtcMs = sanitizeUtcMs(nextRanges[0].startUtcMs, defaults.startMs);
     nextRanges[0].endUtcMs = sanitizeUtcMs(nextRanges[0].endUtcMs, defaults.endMs);
     for (let i = 1; i < nextRanges.length; i++) {
-        nextRanges[i].startUtcMs = nextRanges[i - 1].endUtcMs;
+        nextRanges[i].startUtcMs = sanitizeUtcMs(nextRanges[i].startUtcMs, nextRanges[i - 1].endUtcMs);
+        if (!nextStartEditEnabled[i]) {
+            nextRanges[i].startUtcMs = nextRanges[i - 1].endUtcMs;
+        }
         nextRanges[i].endUtcMs = sanitizeUtcMs(nextRanges[i].endUtcMs, nextRanges[i].startUtcMs);
     }
 
     multiRanges = nextRanges;
     multiRangeCollapsed = Array.from({ length: multiRangeCount }, (_, idx) => !!normalizedCollapsed[idx]);
+    multiRangeStartEditEnabled = nextStartEditEnabled;
+    multiRangeEndEditEnabled = nextEndEditEnabled;
+}
+
+function setMultiRangeStartEditEnabled(rangeIdx, enabled, options = {}) {
+    const { persist = true, rerender = true } = options;
+    ensureMultiRangeState();
+    if (!Number.isInteger(rangeIdx) || rangeIdx <= 0 || rangeIdx >= multiRangeCount) return false;
+
+    const nextEnabled = !!enabled;
+    multiRangeStartEditEnabled[rangeIdx] = nextEnabled;
+    if (!nextEnabled) {
+        multiRanges[rangeIdx].startUtcMs = multiRanges[rangeIdx - 1].endUtcMs;
+    }
+
+    if (rerender && isMultiTab()) renderMultiRanges();
+    if (persist) savePersistence();
+    return true;
+}
+
+function setMultiRangeEndEditEnabled(rangeIdx, enabled, options = {}) {
+    const { persist = true, rerender = true } = options;
+    ensureMultiRangeState();
+    if (!Number.isInteger(rangeIdx) || rangeIdx < 0 || rangeIdx >= multiRangeCount) return false;
+
+    multiRangeEndEditEnabled[rangeIdx] = !!enabled;
+
+    if (rerender && isMultiTab()) renderMultiRanges();
+    if (persist) savePersistence();
+    return true;
+}
+
+function setAllMultiRangeStartEditEnabled(enabled, options = {}) {
+    const { persist = true, rerender = true } = options;
+    ensureMultiRangeState();
+    const next = !!enabled;
+
+    for (let idx = 1; idx < multiRangeCount; idx++) {
+        multiRangeStartEditEnabled[idx] = next;
+        if (!next) {
+            multiRanges[idx].startUtcMs = multiRanges[idx - 1].endUtcMs;
+        }
+    }
+
+    if (rerender && isMultiTab()) renderMultiRanges();
+    if (persist) savePersistence();
+    return true;
+}
+
+function setAllMultiRangeEndEditEnabled(enabled, options = {}) {
+    const { persist = true, rerender = true } = options;
+    ensureMultiRangeState();
+    const next = !!enabled;
+
+    for (let idx = 0; idx < multiRangeCount; idx++) {
+        multiRangeEndEditEnabled[idx] = next;
+    }
+
+    if (rerender && isMultiTab()) renderMultiRanges();
+    if (persist) savePersistence();
+    return true;
 }
 
 function refreshMultiRangeControls() {
     const countInput = document.getElementById("multi-range-count-input");
     if (countInput) countInput.value = String(multiRangeCount);
-
-    const titleInput = document.getElementById("multi-range-title-input");
-    if (titleInput) titleInput.value = multiRangeTitle;
 
     const decreaseBtn = document.getElementById("multi-range-count-decrease");
     const increaseBtn = document.getElementById("multi-range-count-increase");
@@ -430,18 +1188,18 @@ function refreshMultiRangeControls() {
 function renderMultiBulkToolSets() {
     const startTools = document.getElementById("multi-bulk-start-tools");
     const allTools = document.getElementById("multi-bulk-all-tools");
-    if (!startTools || !allTools) return;
+    if (!allTools) return;
 
     const hasRanges = multiRangeCount > 0;
-    startTools.innerHTML = "";
     allTools.innerHTML = "";
-
-    startTools.appendChild(renderTimeAdjustSet(0, {
-        labelText: t("label_range_start"),
-        disabled: !hasRanges,
-        onAction: applyBulkRangeStartAction,
-        includeFixedActions: true
-    }));
+    if (startTools) {
+        startTools.innerHTML = "";
+        startTools.style.display = "none";
+    }
+    allTools.style.display = "flex";
+    allTools.style.flexDirection = "column";
+    allTools.style.alignItems = "flex-start";
+    allTools.style.gap = "8px";
 
     const bulkSet = renderTimeAdjustSet(1, {
         labelText: t("label_range_bulk"),
@@ -458,36 +1216,103 @@ function renderMultiBulkToolSets() {
     } else {
         bulkSet.appendChild(zeroDayBtn);
     }
-    allTools.appendChild(bulkSet);
+    const bulkToolBlock = document.createElement("div");
+    bulkToolBlock.className = "multi-tool-block";
+    bulkToolBlock.appendChild(bulkSet);
+
+    const createBulkToggleButton = (buttonText, onClick) => {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "sm-btn time-adjust-bulk-toggle-btn";
+        button.textContent = buttonText;
+        button.disabled = !hasRanges;
+        button.addEventListener("click", () => {
+            if (button.disabled) return;
+            onClick();
+        });
+        return button;
+    };
+
+    const bulkToggleSet = document.createElement("div");
+    bulkToggleSet.className = "time-adjust-set";
+    const bulkToggleLabel = document.createElement("span");
+    bulkToggleLabel.className = "time-adjust-set-label";
+    bulkToggleLabel.textContent = t("label_all_range_time_adjust");
+    bulkToggleSet.appendChild(bulkToggleLabel);
+    bulkToggleSet.appendChild(createBulkToggleButton(
+        t("btn_enable_all_start_time_adjust"),
+        () => setAllMultiRangeStartEditEnabled(true, { persist: true, rerender: true })
+    ));
+    bulkToggleSet.appendChild(createBulkToggleButton(
+        t("btn_disable_all_start_time_adjust"),
+        () => setAllMultiRangeStartEditEnabled(false, { persist: true, rerender: true })
+    ));
+    bulkToggleSet.appendChild(createTimeAdjustDivider());
+    bulkToggleSet.appendChild(createBulkToggleButton(
+        t("btn_enable_all_end_time_adjust"),
+        () => setAllMultiRangeEndEditEnabled(true, { persist: true, rerender: true })
+    ));
+    bulkToggleSet.appendChild(createBulkToggleButton(
+        t("btn_disable_all_end_time_adjust"),
+        () => setAllMultiRangeEndEditEnabled(false, { persist: true, rerender: true })
+    ));
+    const toggleToolBlock = document.createElement("div");
+    toggleToolBlock.className = "multi-tool-block";
+    toggleToolBlock.appendChild(bulkToggleSet);
+    allTools.appendChild(toggleToolBlock);
+    allTools.appendChild(bulkToolBlock);
 
     const syncZeroButtonWidth = () => {
-        const startSet = startTools.querySelector(".time-adjust-set");
         const bulkZeroBtn = allTools.querySelector(".time-adjust-bulk-zero-btn");
-        if (!startSet || !bulkZeroBtn) return;
-        const nowBtn = startSet.querySelector('[data-action="now"]');
-        const midnightBtn = startSet.querySelector('[data-action="midnight"]');
-        const sharpHourBtn = startSet.querySelector('[data-action="sharp_hour"]');
-        if (!nowBtn || !midnightBtn || !sharpHourBtn) return;
+        if (!bulkZeroBtn) return;
+        const rangeButtons = [...document.querySelectorAll('.multi-range-adjust-row [data-action="set_zero_day"], .multi-range-adjust-row [data-action="sync_prev_end"]')];
+        const targetButtons = [bulkZeroBtn, ...rangeButtons].filter((btn) => btn instanceof HTMLElement);
+        if (!targetButtons.length) return;
 
-        // Match exactly from "Now" button start to "Round Hour" button end.
-        const nowRect = nowBtn.getBoundingClientRect();
-        const sharpHourRect = sharpHourBtn.getBoundingClientRect();
-        const width = Math.round(sharpHourRect.right - nowRect.left); // Manual visual offset (user-tuned)
-        if (width <= 0) return;
+        targetButtons.forEach((btn) => {
+            btn.style.width = "";
+            btn.style.minWidth = "";
+            btn.style.justifyContent = "";
+            btn.style.textAlign = "";
+        });
 
-        const widthPx = `${width}px`;
-        bulkZeroBtn.style.width = widthPx;
-        bulkZeroBtn.style.minWidth = widthPx;
-        bulkZeroBtn.style.justifyContent = "center";
-        bulkZeroBtn.style.textAlign = "center";
+        const firstRangeStartSet = document.querySelector('.multi-range-adjust-row .time-adjust-set [data-action="now"]')?.closest(".time-adjust-set");
+        let desiredSpanToDivider = 0;
+        if (firstRangeStartSet) {
+            const nowBtn = firstRangeStartSet.querySelector('[data-action="now"]');
+            const firstDivider = firstRangeStartSet.querySelector(".time-adjust-divider");
+            if (nowBtn && firstDivider) {
+                const nowRect = nowBtn.getBoundingClientRect();
+                const dividerRect = firstDivider.getBoundingClientRect();
+                desiredSpanToDivider = Math.round(dividerRect.left - nowRect.left);
+            }
+        }
 
-        // Keep per-range end-time "set zero day" buttons aligned with bulk tool width.
-        document.querySelectorAll('.multi-range-adjust-row [data-action="set_zero_day"]').forEach((btn) => {
-            if (!(btn instanceof HTMLElement)) return;
+        if (desiredSpanToDivider > 0) {
+            targetButtons.forEach((btn) => {
+                const set = btn.closest(".time-adjust-set");
+                const setStyle = set ? window.getComputedStyle(set) : null;
+                const gap = setStyle ? (parseFloat(setStyle.columnGap || setStyle.gap || "0") || 0) : 0;
+                const btnStyle = window.getComputedStyle(btn);
+                const marginRight = parseFloat(btnStyle.marginRight || "0") || 0;
+                const nextWidth = Math.max(150, Math.round(desiredSpanToDivider - marginRight - gap));
+                const widthPx = `${nextWidth}px`;
+                btn.style.width = widthPx;
+                btn.style.minWidth = widthPx;
+            });
+            return;
+        }
+
+        const fallbackWidth = Math.max(
+            180,
+            ...targetButtons.map((btn) => Math.ceil(btn.getBoundingClientRect().width)),
+            ...targetButtons.map((btn) => Math.ceil(btn.scrollWidth + 18))
+        );
+        if (fallbackWidth <= 0) return;
+        const widthPx = `${fallbackWidth}px`;
+        targetButtons.forEach((btn) => {
             btn.style.width = widthPx;
             btn.style.minWidth = widthPx;
-            btn.style.justifyContent = "center";
-            btn.style.textAlign = "center";
         });
     };
 
@@ -496,11 +1321,13 @@ function renderMultiBulkToolSets() {
     } else {
         syncZeroButtonWidth();
     }
+    upgradeNativeTitleTooltips(allTools);
 }
 
 function syncMultiRangeStartLinks(startIdx = 1) {
     ensureMultiRangeState();
     for (let idx = Math.max(1, startIdx); idx < multiRanges.length; idx++) {
+        if (!isMultiRangeStartLinked(idx)) continue;
         multiRanges[idx].startUtcMs = multiRanges[idx - 1].endUtcMs;
     }
 }
@@ -510,27 +1337,74 @@ function syncFollowingRangesByDuration(changedRangeIdx) {
     if (changedRangeIdx >= multiRanges.length - 1) return;
 
     const fallbackNow = Date.now();
-    const durations = multiRanges
-        .slice(changedRangeIdx + 1)
-        .map((range) => {
+    const durations = multiRanges.map((range) => {
+        const startUtcMs = sanitizeUtcMs(range?.startUtcMs, fallbackNow);
+        const endUtcMs = sanitizeUtcMs(range?.endUtcMs, startUtcMs);
+        return endUtcMs - startUtcMs;
+    });
+
+    let cursor = sanitizeUtcMs(multiRanges[changedRangeIdx]?.endUtcMs, fallbackNow);
+    for (let idx = changedRangeIdx + 1; idx < multiRanges.length; idx++) {
+        const duration = durations[idx] ?? 0;
+        if (isMultiRangeStartLinked(idx)) {
+            multiRanges[idx].startUtcMs = cursor;
+            multiRanges[idx].endUtcMs = cursor + duration;
+        } else {
+            multiRanges[idx].startUtcMs = sanitizeUtcMs(multiRanges[idx].startUtcMs, cursor);
+            multiRanges[idx].endUtcMs = sanitizeUtcMs(multiRanges[idx].endUtcMs, multiRanges[idx].startUtcMs);
+        }
+        cursor = sanitizeUtcMs(multiRanges[idx].endUtcMs, cursor);
+    }
+}
+
+function syncLinkedRangesFrom(rangeIdx, options = {}) {
+    const { includeCurrent = true, stopAtFirstUnlocked = true, baseDurations = null } = options;
+    ensureMultiRangeState();
+    if (!Number.isInteger(rangeIdx) || rangeIdx < 0 || rangeIdx >= multiRanges.length) return;
+
+    const fallbackNow = Date.now();
+    const durations = Array.isArray(baseDurations) && baseDurations.length
+        ? baseDurations
+        : multiRanges.map((range) => {
             const startUtcMs = sanitizeUtcMs(range?.startUtcMs, fallbackNow);
             const endUtcMs = sanitizeUtcMs(range?.endUtcMs, startUtcMs);
             return endUtcMs - startUtcMs;
         });
 
-    let cursor = sanitizeUtcMs(multiRanges[changedRangeIdx]?.endUtcMs, fallbackNow);
-    for (let idx = changedRangeIdx + 1; idx < multiRanges.length; idx++) {
-        const durationIdx = idx - changedRangeIdx - 1;
-        const duration = durations[durationIdx] ?? 0;
+    let anchorIdx = rangeIdx;
+    if (includeCurrent) {
+        const startUtcMs = sanitizeUtcMs(multiRanges[anchorIdx]?.startUtcMs, fallbackNow);
+        multiRanges[anchorIdx].startUtcMs = startUtcMs;
+        multiRanges[anchorIdx].endUtcMs = startUtcMs + (durations[anchorIdx] ?? 0);
+    }
+
+    let cursor = sanitizeUtcMs(multiRanges[anchorIdx]?.endUtcMs, fallbackNow);
+    for (let idx = anchorIdx + 1; idx < multiRanges.length; idx++) {
+        if (!isMultiRangeStartLinked(idx)) {
+            if (stopAtFirstUnlocked) break;
+            cursor = sanitizeUtcMs(multiRanges[idx]?.endUtcMs, cursor);
+            continue;
+        }
         multiRanges[idx].startUtcMs = cursor;
-        multiRanges[idx].endUtcMs = cursor + duration;
-        cursor = multiRanges[idx].endUtcMs;
+        multiRanges[idx].endUtcMs = cursor + (durations[idx] ?? 0);
+        cursor = sanitizeUtcMs(multiRanges[idx].endUtcMs, cursor);
     }
 }
 
 function setMultiRangeCount(value, options = {}) {
-    const { persist = true, rerender = true } = options;
-    multiRangeCount = sanitizeMultiRangeCount(value);
+    const { persist = true, rerender = true, showBoundaryToast = false } = options;
+    const parsed = parseInt(value, 10);
+    const nextCount = sanitizeMultiRangeCount(value);
+
+    if (showBoundaryToast && Number.isFinite(parsed)) {
+        if (parsed >= MAX_MULTI_RANGE_COUNT) {
+            showToast(t("toast_range_count_max"));
+        } else if (parsed <= MIN_MULTI_RANGE_COUNT) {
+            showToast(t("toast_range_count_min"));
+        }
+    }
+
+    multiRangeCount = nextCount;
     ensureMultiRangeState();
     refreshMultiRangeControls();
 
@@ -540,7 +1414,13 @@ function setMultiRangeCount(value, options = {}) {
 
 function setMultiRangeTitle(value, options = {}) {
     const { persist = true, rerender = true } = options;
-    multiRangeTitle = sanitizeMultiRangeTitle(value);
+    const subgroup = getCurrentMultiSubgroup();
+    if (subgroup) {
+        subgroup.name = sanitizeMultiSubgroupName(value, subgroup.name || getDefaultMultiSubgroupName(0));
+        multiRangeTitle = sanitizeMultiRangeTitle(subgroup.name);
+    } else {
+        multiRangeTitle = sanitizeMultiRangeTitle(value);
+    }
     ensureMultiRangeState();
     refreshMultiRangeControls();
 
@@ -686,14 +1566,19 @@ let activeGroupId = 0;
 
 document.addEventListener("DOMContentLoaded", () => {
     loadPersistence();
-    ensureMultiRangeState();
+    if (localizeAutoGeneratedNamesForCurrentLanguage()) {
+        savePersistence();
+    }
+    loadCurrentMultiStateFromActiveSubgroup();
     applyTheme(loadThemePreference(), false);
     applyUiScale(loadUiScalePreference(), false);
     applyTranslations();
     applyVersionBranding();
     initUI();
+    bindFloatingTooltipEvents();
     initDragAndDrop();
     initSearchAndSelect();
+    queueStandardTimezoneWarmup();
     initCalculators();
 
     setInterval(() => {
@@ -727,7 +1612,7 @@ function initUI() {
     const multiRangeIncreaseBtn = document.getElementById("multi-range-count-increase");
     if (multiRangeCountInput) {
         const commitRangeCount = () => {
-            setMultiRangeCount(multiRangeCountInput.value, { persist: true, rerender: true });
+            setMultiRangeCount(multiRangeCountInput.value, { persist: true, rerender: true, showBoundaryToast: true });
         };
         multiRangeCountInput.addEventListener("input", () => {
             multiRangeCountInput.value = String(multiRangeCountInput.value || "").replace(/[^0-9]/g, "");
@@ -742,26 +1627,12 @@ function initUI() {
     }
     if (multiRangeDecreaseBtn) {
         multiRangeDecreaseBtn.addEventListener("click", () => {
-            setMultiRangeCount(multiRangeCount - 1, { persist: true, rerender: true });
+            setMultiRangeCount(multiRangeCount - 1, { persist: true, rerender: true, showBoundaryToast: true });
         });
     }
     if (multiRangeIncreaseBtn) {
         multiRangeIncreaseBtn.addEventListener("click", () => {
-            setMultiRangeCount(multiRangeCount + 1, { persist: true, rerender: true });
-        });
-    }
-
-    const multiRangeTitleInput = document.getElementById("multi-range-title-input");
-    if (multiRangeTitleInput) {
-        const commitRangeTitle = () => {
-            setMultiRangeTitle(multiRangeTitleInput.value, { persist: true, rerender: true });
-        };
-        multiRangeTitleInput.addEventListener("change", commitRangeTitle);
-        multiRangeTitleInput.addEventListener("blur", commitRangeTitle);
-        multiRangeTitleInput.addEventListener("keydown", (e) => {
-            if (e.key !== "Enter") return;
-            commitRangeTitle();
-            multiRangeTitleInput.blur();
+            setMultiRangeCount(multiRangeCount + 1, { persist: true, rerender: true, showBoundaryToast: true });
         });
     }
 
@@ -787,17 +1658,6 @@ function initUI() {
         extraTimeToggle.onchange = (e) => {
             slotCount = e.target.checked ? 2 : 1;
             renderList();
-            updateClocks();
-            savePersistence();
-        };
-    }
-
-    const timeAdjustToggle = document.getElementById("toggle-time-adjust");
-    if (timeAdjustToggle) {
-        timeAdjustToggle.checked = showTimeAdjust;
-        timeAdjustToggle.onchange = (e) => {
-            showTimeAdjust = !!e.target.checked;
-            updateTimeAdjustPanel();
             savePersistence();
         };
     }
@@ -808,16 +1668,6 @@ function initUI() {
         copyFormatToggle.onchange = (e) => {
             showCopyFormat = !!e.target.checked;
             renderCopyFormatControls();
-            savePersistence();
-        };
-    }
-
-    const ignoreDSTToggle = document.getElementById("toggle-ignore-dst");
-    if (ignoreDSTToggle) {
-        ignoreDSTToggle.checked = ignoreDST;
-        ignoreDSTToggle.onchange = (e) => {
-            ignoreDST = !!e.target.checked;
-            updateClocks();
             savePersistence();
         };
     }
@@ -876,18 +1726,37 @@ function initUI() {
     };
 
     document.getElementById("add-group-btn").onclick = () => {
-        const name = prompt(t("prompt_new_group"), "그룹");
+        const name = prompt(t("prompt_new_group"), t("default_group_name"));
         if (name) {
-            groups.push({ name, zones: [], baseTimezoneId: "utc", showUtcRow: true, utcRowOrder: 0 });
+            syncCurrentMultiStateToActiveSubgroup();
+            const nextGroup = {
+                name: name.trim(),
+                zones: [],
+                baseTimezoneId: "utc",
+                showUtcRow: true,
+                utcRowOrder: 0
+            };
+            ensureGroupMultiSubgroups(nextGroup);
+            groups.push(nextGroup);
             activeGroupId = groups.length - 1;
             if (currentMainTab === "live" || currentMainTab === "fixed") {
                 activeGroupIdByMainTab[currentMainTab] = activeGroupId;
             }
+            loadCurrentMultiStateFromActiveSubgroup();
             savePersistence();
             renderGroups();
-            renderList();
+            renderMultiSubgroups();
+            if (isMultiTab()) {
+                renderBaseTimeSelect();
+                renderMultiRanges();
+            }
+            else renderList();
         }
     };
+    const addMultiSubgroupBtn = document.getElementById("add-multi-subgroup-btn");
+    if (addMultiSubgroupBtn) {
+        addMultiSubgroupBtn.onclick = addMultiSubgroup;
+    }
 
     document.getElementById("copy-all-btn").onclick = copyAllTimezones;
     const saveTableImageBtn = document.getElementById("save-table-image-btn");
@@ -915,6 +1784,14 @@ function initUI() {
         };
         settingsImportFile.onchange = handleSettingsImportFile;
     }
+    const groupImportFile = document.getElementById("group-import-file");
+    if (groupImportFile) {
+        groupImportFile.onchange = handleGroupImportFile;
+    }
+    const subgroupImportFile = document.getElementById("subgroup-import-file");
+    if (subgroupImportFile) {
+        subgroupImportFile.onchange = handleSubgroupImportFile;
+    }
 
     const themeSelect = document.getElementById("theme-select");
     if (themeSelect) {
@@ -929,10 +1806,15 @@ function initUI() {
     if (langSelect) {
         langSelect.value = currentLang;
         langSelect.onchange = (e) => {
+            hideFloatingTooltip();
             setLanguage(e.target.value);
+            if (localizeAutoGeneratedNamesForCurrentLanguage()) {
+                savePersistence();
+            }
             applyVersionBranding();
             updateTZDropdown(); // Ensure dropdown is updated
             renderGroups();
+            renderMultiSubgroups();
             renderList();
             updateTimeAdjustPanel();
             renderCopyFormatControls();
@@ -943,6 +1825,10 @@ function initUI() {
         };
     }
 
+    const resetExceptGroupTzBtn = document.getElementById("reset-except-group-tz-btn");
+    if (resetExceptGroupTzBtn) {
+        resetExceptGroupTzBtn.onclick = resetExceptGroupsAndTimezones;
+    }
     const resetAllSettingsBtn = document.getElementById("reset-all-settings-btn");
     if (resetAllSettingsBtn) {
         resetAllSettingsBtn.onclick = resetAllSettings;
@@ -969,6 +1855,7 @@ function initUI() {
     updateOptionRowVisibility();
     updateTimeAdjustPanel();
     renderCopyFormatControls();
+    upgradeNativeTitleTooltips(document);
 }
 
 function showToast(message) {
@@ -988,8 +1875,48 @@ function showToast(message) {
     }, 2000);
 }
 
+function isQuotaExceededError(err) {
+    if (!err || typeof err !== "object") return false;
+    const code = Number(err.code);
+    const name = (typeof err.name === "string") ? err.name : "";
+    return code === 22 || code === 1014 || name === "QuotaExceededError" || name === "NS_ERROR_DOM_QUOTA_REACHED";
+}
+
+function showPersistenceErrorToast(err) {
+    const now = Date.now();
+    if (now - lastPersistenceErrorToastAt < 2500) return;
+    lastPersistenceErrorToastAt = now;
+    showToast(t(isQuotaExceededError(err) ? "toast_storage_quota_exceeded" : "toast_storage_save_failed"));
+}
+
+function setLocalStorageValue(key, value, options = {}) {
+    const { suppressToast = false } = options;
+    try {
+        localStorage.setItem(key, value);
+        return { ok: true, error: null };
+    } catch (err) {
+        console.error(`Failed to write localStorage key "${key}".`, err);
+        if (!suppressToast) showPersistenceErrorToast(err);
+        return { ok: false, error: err };
+    }
+}
+
+function persistStorageSnapshot(snapshot, options = {}) {
+    let serialized = "";
+    try {
+        serialized = JSON.stringify(snapshot);
+    } catch (err) {
+        console.error("Failed to serialize persistence snapshot.", err);
+        if (!options?.suppressToast) showPersistenceErrorToast(err);
+        return { ok: false, error: err };
+    }
+    return setLocalStorageValue(STORAGE_KEY, serialized, options);
+}
+
 function switchMainTab(tab) {
     const nextTab = sanitizeMainTab(tab);
+    hideFloatingTooltip();
+    syncCurrentMultiStateToActiveSubgroup();
 
     if (currentMainTab === "live" || currentMainTab === "fixed") {
         activeGroupIdByMainTab[currentMainTab] = clampGroupIndex(activeGroupId);
@@ -1014,9 +1941,7 @@ function switchMainTab(tab) {
 
     isRealtime = (currentMainTab === "live");
     const extraTimeToggle = document.getElementById("toggle-extra-time");
-    const timeAdjustToggle = document.getElementById("toggle-time-adjust");
     const copyFormatToggle = document.getElementById("toggle-copy-format");
-    const ignoreDSTToggle = document.getElementById("toggle-ignore-dst");
 
     const statusText = document.getElementById("status-text");
     if (statusText) {
@@ -1032,26 +1957,22 @@ function switchMainTab(tab) {
         else extraTimeToggle.checked = (slotCount > 1);
     }
 
-    if (timeAdjustToggle) {
-        timeAdjustToggle.disabled = isRealtime || isMulti;
-        timeAdjustToggle.checked = isMulti ? true : (!isRealtime && showTimeAdjust);
-    }
     if (copyFormatToggle) {
         copyFormatToggle.checked = showCopyFormat;
     }
-    if (ignoreDSTToggle) {
-        ignoreDSTToggle.disabled = isRealtime;
-        ignoreDSTToggle.checked = !isRealtime && ignoreDST;
-    }
     updateOptionRowVisibility();
 
+    if (isMulti) {
+        renderBaseTimeSelect();
+        loadCurrentMultiStateFromActiveSubgroup();
+    }
     renderGroups();
+    renderMultiSubgroups();
     if (isMulti) {
         renderMultiRanges();
     } else {
         renderList();
         updateTimeAdjustPanel();
-        updateClocks();
     }
     renderCopyFormatControls();
     savePersistence();
@@ -1062,12 +1983,11 @@ function updateOptionRowVisibility() {
     if (!optionRow) return;
 
     const extraTimeGroup = document.getElementById("toggle-extra-time")?.closest(".control-group");
-    const timeAdjustGroup = document.getElementById("toggle-time-adjust")?.closest(".control-group");
-    const ignoreDSTGroup = document.getElementById("toggle-ignore-dst")?.closest(".control-group");
     const copyFormatGroup = document.getElementById("toggle-copy-format")?.closest(".control-group");
     const rangeCountGroup = document.getElementById("multi-range-count-group");
-    const rangeTitleGroup = document.getElementById("multi-range-title-group");
     const multiToolsRow = document.getElementById("multi-tools-row");
+    const multiSubgroupRow = document.getElementById("multi-subgroup-row");
+    const multiControlsFrame = document.getElementById("multi-controls-frame");
     const saveTableImageBtn = document.getElementById("save-table-image-btn");
     const saveMultiRangeTitlesImageBtn = document.getElementById("save-multi-range-titles-image-btn");
     const saveMultiRangeByRangeImageBtn = document.getElementById("save-multi-range-by-range-image-btn");
@@ -1075,16 +1995,27 @@ function updateOptionRowVisibility() {
 
     optionRow.style.display = "flex";
     if (extraTimeGroup) extraTimeGroup.style.display = (isRealtime || isMulti) ? "none" : "flex";
-    if (timeAdjustGroup) timeAdjustGroup.style.display = (isRealtime || isMulti) ? "none" : "flex";
-    if (ignoreDSTGroup) ignoreDSTGroup.style.display = isRealtime ? "none" : "flex";
     if (copyFormatGroup) copyFormatGroup.style.display = "flex";
     if (rangeCountGroup) rangeCountGroup.style.display = isMulti ? "flex" : "none";
-    if (rangeTitleGroup) rangeTitleGroup.style.display = isMulti ? "flex" : "none";
+    if (multiControlsFrame) multiControlsFrame.style.display = isMulti ? "block" : "none";
+    if (multiSubgroupRow) multiSubgroupRow.style.display = isMulti ? "flex" : "none";
     if (multiToolsRow) multiToolsRow.style.display = isMulti ? "flex" : "none";
     if (saveTableImageBtn) saveTableImageBtn.style.display = isMulti ? "none" : "";
     if (saveMultiRangeTitlesImageBtn) saveMultiRangeTitlesImageBtn.style.display = isMulti ? "" : "none";
     if (saveMultiRangeByRangeImageBtn) saveMultiRangeByRangeImageBtn.style.display = isMulti ? "" : "none";
     refreshMultiRangeControls();
+    refreshOptionToggleDividers();
+}
+
+function refreshOptionToggleDividers() {
+    const optionRow = document.getElementById("control-option-row");
+    if (!optionRow) return;
+    const optionGroups = [...optionRow.querySelectorAll(".option-toggle-group")];
+    optionGroups.forEach((group) => group.classList.remove("option-with-divider"));
+    const visibleGroups = optionGroups.filter((group) => group.style.display !== "none");
+    visibleGroups.forEach((group, idx) => {
+        if (idx < visibleGroups.length - 1) group.classList.add("option-with-divider");
+    });
 }
 
 function adjustSelectWidthForContent(select, minWidth = 0) {
@@ -1114,8 +2045,8 @@ function adjustSelectWidthForContent(select, minWidth = 0) {
 }
 
 function refreshSelectWidths() {
-    adjustSelectWidthForContent(document.getElementById("tz-quick-select"), 130);
-    adjustSelectWidthForContent(document.getElementById("base-time-select"), 220);
+    adjustSelectWidthForContent(document.getElementById("tz-quick-select"), 118);
+    adjustSelectWidthForContent(document.getElementById("base-time-select"), 200);
 }
 
 function renderBaseTimeSelect() {
@@ -1171,6 +2102,27 @@ function createTimeAdjustDivider() {
     return divider;
 }
 
+function attachTimeAdjustToggleLabel(setEl, checked, text, onChange) {
+    if (!(setEl instanceof HTMLElement) || typeof onChange !== "function") return;
+    const label = setEl.querySelector(".time-adjust-set-label");
+    if (!label) return;
+
+    label.classList.add("time-adjust-set-label-with-toggle");
+    label.textContent = "";
+
+    const toggle = document.createElement("input");
+    toggle.type = "checkbox";
+    toggle.className = "time-adjust-set-toggle";
+    toggle.checked = !!checked;
+    toggle.addEventListener("change", () => onChange(toggle.checked));
+
+    const textEl = document.createElement("span");
+    textEl.textContent = text;
+
+    label.appendChild(toggle);
+    label.appendChild(textEl);
+}
+
 function sanitizeTimeAdjustDayStep(value) {
     const parsed = parseInt(value, 10);
     if (!Number.isFinite(parsed)) return DEFAULT_TIME_ADJUST_DAY_STEP;
@@ -1184,11 +2136,6 @@ function getTimeAdjustDayStep(slotIdx) {
 function setTimeAdjustDayStep(slotIdx, value) {
     timeAdjustDayStepBySlot[slotIdx] = sanitizeTimeAdjustDayStep(value);
     return timeAdjustDayStepBySlot[slotIdx];
-}
-
-function getTimeAdjustCustomDayLabel(direction, dayStep) {
-    const sign = direction < 0 ? "-" : "+";
-    return `${sign}${dayStep}${t("unit_days_short")}`;
 }
 
 function createTimeAdjustCustomDaysControl(slotIdx, onAction = applyTimeAdjustAction, disabled = false) {
@@ -1231,10 +2178,6 @@ function createTimeAdjustCustomDaysControl(slotIdx, onAction = applyTimeAdjustAc
     const syncInputAndLabel = (persist = false) => {
         const normalized = setTimeAdjustDayStep(slotIdx, dayInput.value);
         dayInput.value = String(normalized);
-        minusBtn.title = getTimeAdjustCustomDayLabel(-1, normalized);
-        plusBtn.title = getTimeAdjustCustomDayLabel(1, normalized);
-        minusBtn.setAttribute("aria-label", minusBtn.title);
-        plusBtn.setAttribute("aria-label", plusBtn.title);
         if (persist) savePersistence();
     };
 
@@ -1256,7 +2199,8 @@ function renderTimeAdjustSet(slotIdx, options = {}) {
         labelText = "",
         disabled = false,
         includeFixedActions = true,
-        includeZeroDayAction = false
+        includeZeroDayAction = false,
+        includeSyncPreviousEndAction = false
     } = options;
     const set = document.createElement("div");
     set.className = "time-adjust-set";
@@ -1279,7 +2223,16 @@ function renderTimeAdjustSet(slotIdx, options = {}) {
     }
 
     if (includeZeroDayAction) {
-        set.appendChild(createTimeAdjustActionButton("btn_set_zero_day", slotIdx, "set_zero_day", onAction, disabled));
+        const zeroDayBtn = createTimeAdjustActionButton("btn_set_zero_day", slotIdx, "set_zero_day", onAction, disabled);
+        zeroDayBtn.classList.add("time-adjust-zero-btn");
+        set.appendChild(zeroDayBtn);
+        set.appendChild(createTimeAdjustDivider());
+    }
+
+    if (includeSyncPreviousEndAction) {
+        const syncPrevBtn = createTimeAdjustActionButton("btn_sync_extra_time", slotIdx, "sync_prev_end", onAction, disabled);
+        syncPrevBtn.classList.add("time-adjust-sync-btn");
+        set.appendChild(syncPrevBtn);
         set.appendChild(createTimeAdjustDivider());
     }
 
@@ -1307,14 +2260,14 @@ function renderTimeAdjustSet(slotIdx, options = {}) {
 }
 
 function updateTimeAdjustPanel() {
+    const frame = document.getElementById("time-adjust-frame");
     const row = document.getElementById("time-adjust-row");
     const buttonsContainer = document.getElementById("time-adjust-buttons");
-    const bar = document.getElementById("top-control-bar");
-    if (!row || !buttonsContainer || !bar) return;
+    if (!frame || !row || !buttonsContainer) return;
 
-    const visible = !isRealtime && !isMultiTab() && showTimeAdjust;
+    const visible = currentMainTab === "fixed";
+    frame.style.display = visible ? "block" : "none";
     row.style.display = visible ? "block" : "none";
-    bar.classList.toggle("time-adjust-enabled", visible);
 
     if (!visible) {
         buttonsContainer.innerHTML = "";
@@ -1323,10 +2276,67 @@ function updateTimeAdjustPanel() {
 
     const effectiveSlotCount = isRealtime ? 1 : slotCount;
     buttonsContainer.innerHTML = "";
-    buttonsContainer.appendChild(renderTimeAdjustSet(0));
     if (effectiveSlotCount > 1) {
-        buttonsContainer.appendChild(renderTimeAdjustSet(1));
+        buttonsContainer.appendChild(renderTimeAdjustSet(0, {
+            labelText: t("label_start_time_adjust"),
+            includeFixedActions: true
+        }));
+        buttonsContainer.appendChild(renderTimeAdjustSet(1, {
+            labelText: t("label_extra_time_adjust"),
+            includeFixedActions: false,
+            includeZeroDayAction: true
+        }));
+    } else {
+        buttonsContainer.appendChild(renderTimeAdjustSet(0, {
+            labelText: t("label_main_time_adjust"),
+            includeFixedActions: true
+        }));
     }
+
+    const syncFixedZeroButtonWidth = () => {
+        const sets = [...buttonsContainer.querySelectorAll(".time-adjust-set")];
+        if (sets.length < 2) return;
+        const startSet = sets[0];
+        const endSet = sets[1];
+        const zeroBtn = endSet.querySelector('[data-action="set_zero_day"]');
+        if (!(zeroBtn instanceof HTMLElement)) return;
+
+        zeroBtn.style.width = "";
+        zeroBtn.style.minWidth = "";
+
+        const nowBtn = startSet.querySelector('[data-action="now"]');
+        const firstDivider = startSet.querySelector(".time-adjust-divider");
+        if (nowBtn instanceof HTMLElement && firstDivider instanceof HTMLElement) {
+            const nowRect = nowBtn.getBoundingClientRect();
+            const dividerRect = firstDivider.getBoundingClientRect();
+            const desiredSpanToDivider = Math.round(dividerRect.left - nowRect.left);
+            if (desiredSpanToDivider > 0) {
+                const endSetStyle = window.getComputedStyle(endSet);
+                const gap = parseFloat(endSetStyle.columnGap || endSetStyle.gap || "0") || 0;
+                const btnStyle = window.getComputedStyle(zeroBtn);
+                const marginRight = parseFloat(btnStyle.marginRight || "0") || 0;
+                const widthPx = `${Math.max(150, Math.round(desiredSpanToDivider - marginRight - gap))}px`;
+                zeroBtn.style.width = widthPx;
+                zeroBtn.style.minWidth = widthPx;
+                return;
+            }
+        }
+
+        const fallbackWidth = Math.max(150, Math.ceil(zeroBtn.scrollWidth + 18));
+        const widthPx = `${fallbackWidth}px`;
+        zeroBtn.style.width = widthPx;
+        zeroBtn.style.minWidth = widthPx;
+    };
+
+    if (effectiveSlotCount > 1) {
+        if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+            window.requestAnimationFrame(syncFixedZeroButtonWidth);
+        } else {
+            syncFixedZeroButtonWidth();
+        }
+    }
+
+    upgradeNativeTitleTooltips(buttonsContainer);
 }
 
 function getCopyFieldLabel(key) {
@@ -1410,8 +2420,7 @@ function renderFormatControlList(list, order, enabled, options = {}) {
 
         const dragHandle = document.createElement("span");
         dragHandle.className = "copy-format-drag";
-        dragHandle.textContent = "↔";
-        dragHandle.title = t("tooltip_reorder");
+        dragHandle.textContent = "⠿";
         dragHandle.draggable = true;
 
         const label = document.createElement("label");
@@ -1440,7 +2449,6 @@ function renderFormatControlList(list, order, enabled, options = {}) {
             partsBtn.type = "button";
             partsBtn.className = "time-parts-toggle-btn";
             partsBtn.textContent = t("btn_time_parts");
-            partsBtn.title = t("label_time_parts");
             partsBtn.addEventListener("click", (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1561,6 +2569,7 @@ function renderCopyFormatControls() {
         }
     });
     updateCopyFormatPreview();
+    upgradeNativeTitleTooltips(row);
 }
 
 function getDisplayColumns(effectiveSlotCount) {
@@ -1616,6 +2625,7 @@ function buildTimeColumnCell(slotIdx, slotCountToRender, options = {}) {
 }
 
 function getDisplayColumnHeader(colKey) {
+    const useRangeTimeLabels = !isRealtime && slotCount > 1;
     switch (colKey) {
         case "timezone":
             return `<th style="width: 110px;">${t("th_tz_abbr")}</th>`;
@@ -1624,9 +2634,9 @@ function getDisplayColumnHeader(colKey) {
         case "offset":
             return `<th style="width: 140px;">${t("th_utc_offset")}</th>`;
         case "time_main":
-            return `<th class="dynamic-col">${t("th_time_day_main")}</th>`;
+            return `<th class="dynamic-col">${t(useRangeTimeLabels ? "th_time_day_start" : "th_time_day_main")}</th>`;
         case "time_extra":
-            return `<th class="dynamic-col">${t("th_time_day_extra")}</th>`;
+            return `<th class="dynamic-col">${t(useRangeTimeLabels ? "th_time_day_end" : "th_time_day_extra")}</th>`;
         case "period_days":
             return `<th style="width: 90px;">${t("th_period_days")}</th>`;
         case "period_time":
@@ -1637,13 +2647,24 @@ function getDisplayColumnHeader(colKey) {
 }
 
 function getMultiDisplayColumnHeader(colKey) {
-    if (colKey === "time_main") {
-        return `<th class="dynamic-col">${t("th_time_day_start")}</th>`;
+    switch (colKey) {
+        case "timezone":
+            return `<th style="width: 96px;">${t("th_tz_abbr")}</th>`;
+        case "region":
+            return `<th style="width: 180px;">${t("th_region")}</th>`;
+        case "offset":
+            return `<th style="width: 118px;">${t("th_utc_offset")}</th>`;
+        case "time_main":
+            return `<th class="dynamic-col">${t("th_time_day_start")}</th>`;
+        case "time_extra":
+            return `<th class="dynamic-col">${t("th_time_day_end")}</th>`;
+        case "period_days":
+            return `<th style="width: 82px;">${t("th_period_days")}</th>`;
+        case "period_time":
+            return `<th style="width: 136px;">${t("th_period_time")}</th>`;
+        default:
+            return "";
     }
-    if (colKey === "time_extra") {
-        return `<th class="dynamic-col">${t("th_time_day_end")}</th>`;
-    }
-    return getDisplayColumnHeader(colKey);
 }
 
 function buildStaticRowCell(colKey, slotCountToRender, zoneNameHtml = "") {
@@ -1690,10 +2711,13 @@ function buildDynamicRowCell(colKey, slotCountToRender) {
     }
 }
 
-function buildRowActionCells(copyButtonTitle, removeButtonText) {
+function buildRowActionCells(copyButtonTitle, removeButtonText, removeButtonTitle = "") {
     const copyCell = `<td class="export-exclude copy-cell"><div class="btn-group"><button class="sm-btn copy-row-btn" title="${copyButtonTitle}">📋</button></div></td>`;
+    const removeTitleAttr = (typeof removeButtonTitle === "string" && removeButtonTitle.trim())
+        ? ` title="${removeButtonTitle.trim()}"`
+        : "";
     const removeCell = removeButtonText
-        ? `<td class="export-exclude remove-cell"><div class="btn-group"><button class="sm-btn danger remove-row-btn">${removeButtonText}</button></div></td>`
+        ? `<td class="export-exclude remove-cell"><div class="btn-group"><button class="sm-btn danger remove-row-btn"${removeTitleAttr}>${removeButtonText}</button></div></td>`
         : `<td class="export-exclude remove-cell"></td>`;
     return `${copyCell}${removeCell}`;
 }
@@ -1704,12 +2728,12 @@ function createInteractiveTimezoneRow(tz, effectiveSlotCount, displayColumns, ro
     tr.id = `tz-row-${rowId}`;
     tr.draggable = false;
 
-    const dragHandleHtml = `<button type="button" class="drag-handle" draggable="true" title="${t("tooltip_reorder")}">↕</button>`;
+    const dragHandleHtml = `<button type="button" class="drag-handle" draggable="true">⠿</button>`;
     let inner = `<td class="move-cell"><div class="btn-group">${dragHandleHtml}</div></td>`;
     displayColumns.forEach((colKey) => {
         inner += buildDynamicRowCell(colKey, effectiveSlotCount);
     });
-    inner += buildRowActionCells(t("tooltip_copy"), "✖");
+    inner += buildRowActionCells(t("tooltip_copy"), "✖", t("tooltip_remove_row"));
     tr.innerHTML = inner;
 
     const zoneNameEl = tr.querySelector(".zone-name");
@@ -1825,7 +2849,7 @@ function buildTimezoneComputedSnapshotForRange(tz, startDate, endDate) {
         const absMin = Math.abs(offsetMin);
         offsetStr = `UTC${sign}${pad(Math.floor(absMin / 60))}:${pad(absMin % 60)}`;
     } else {
-        zoneCodeMain = getBetterAbbr(tz.zone, startDate);
+        zoneCodeMain = getZoneAbbreviation(tz, startDate);
         if (Number.isFinite(fixedDisplayOffsetMinutes)) {
             const sign = fixedDisplayOffsetMinutes >= 0 ? "+" : "-";
             const absMin = Math.abs(fixedDisplayOffsetMinutes);
@@ -1936,7 +2960,7 @@ function formatRangeDurationText(startUtcMs, endUtcMs) {
 }
 
 function getMultiRangeTitleText(rangeIdx, range, baseRef) {
-    const safeTitle = sanitizeMultiRangeTitle(multiRangeTitle);
+    const safeTitle = sanitizeMultiSubgroupName(getCurrentMultiSubgroupName(), sanitizeMultiRangeTitle(multiRangeTitle));
     const durationText = formatRangeDurationText(range.startUtcMs, range.endUtcMs);
     const baseSnapshot = buildTimezoneComputedSnapshotForRange(
         baseRef,
@@ -1945,7 +2969,7 @@ function getMultiRangeTitleText(rangeIdx, range, baseRef) {
     );
     const startText = baseSnapshot?.times?.[0] || "-";
     const endText = baseSnapshot?.times?.[1] || "-";
-    return `${safeTitle} ${rangeIdx + 1} - ${t("label_range_period")}: ${startText} ~ ${endText} [${durationText}]`;
+    return `${safeTitle} #${rangeIdx + 1} - ${startText} ~ ${endText} [${durationText}]`;
 }
 
 function createMultiRangeTableRow(tz, options = {}) {
@@ -1975,15 +2999,17 @@ function createMultiRangeTableRow(tz, options = {}) {
         const slotIdx = parseInt(inp.dataset.slot, 10);
         const inputMode = inp.dataset.inputMode || "datetime";
         const timezoneId = rowId === "utc" ? null : tz.id;
-        const lockedByChain = rangeIdx > 0 && slotIdx === 0;
-        if (lockedByChain) inp.readOnly = true;
+        const lockedByChain = slotIdx === 0 && rangeIdx > 0 && !isMultiRangeStartEditEnabled(rangeIdx);
+        const lockedByEndToggle = slotIdx === 1 && !isMultiRangeEndEditEnabled(rangeIdx);
+        const lockedByToggle = lockedByChain || lockedByEndToggle;
+        if (lockedByToggle) inp.readOnly = true;
         inp.onchange = (e) => {
-            if (lockedByChain) return;
+            if (lockedByToggle) return;
             handleMultiRangeTimeChange(rangeIdx, e.target.value, tz.zone || "CUSTOM", slotIdx, timezoneId, inputMode);
         };
         inp.onkeydown = (e) => {
             if (e.key !== "Enter") return;
-            if (!lockedByChain) handleMultiRangeTimeChange(rangeIdx, inp.value, tz.zone || "CUSTOM", slotIdx, timezoneId, inputMode);
+            if (!lockedByToggle) handleMultiRangeTimeChange(rangeIdx, inp.value, tz.zone || "CUSTOM", slotIdx, timezoneId, inputMode);
             inp.blur();
         };
     });
@@ -1998,6 +3024,7 @@ function createMultiRangeTableRow(tz, options = {}) {
 }
 
 function renderMultiRanges() {
+    hideFloatingTooltip();
     const container = document.getElementById("multi-ranges-container");
     if (!container) return;
 
@@ -2025,6 +3052,13 @@ function renderMultiRanges() {
 
         const headerActions = document.createElement("div");
         headerActions.className = "multi-range-header-actions";
+        const createHeaderActionDivider = () => {
+            const divider = document.createElement("span");
+            divider.className = "multi-range-header-divider";
+            divider.textContent = "|";
+            divider.setAttribute("aria-hidden", "true");
+            return divider;
+        };
 
         const copyRangeBtn = document.createElement("button");
         copyRangeBtn.type = "button";
@@ -2055,8 +3089,10 @@ function renderMultiRanges() {
         toggleBtn.addEventListener("click", () => toggleMultiRangeCollapsed(rangeIdx));
 
         headerActions.appendChild(copyRangeBtn);
+        headerActions.appendChild(createHeaderActionDivider());
         headerActions.appendChild(collapseBelowBtn);
         headerActions.appendChild(expandBelowBtn);
+        headerActions.appendChild(createHeaderActionDivider());
         headerActions.appendChild(toggleBtn);
         header.appendChild(title);
         header.appendChild(headerActions);
@@ -2064,12 +3100,38 @@ function renderMultiRanges() {
 
         const adjustRow = document.createElement("div");
         adjustRow.className = "multi-range-adjust-row";
-        adjustRow.appendChild(renderTimeAdjustSet(1, {
+        const startAdjustEnabled = rangeIdx === 0 ? true : isMultiRangeStartEditEnabled(rangeIdx);
+        const startAdjustSet = renderTimeAdjustSet(0, {
+            labelText: t("label_start_time_adjust"),
+            includeFixedActions: rangeIdx === 0,
+            includeSyncPreviousEndAction: rangeIdx > 0,
+            disabled: rangeIdx > 0 ? !startAdjustEnabled : false,
+            onAction: (slotIdx, action) => applyMultiRangeTimeAdjustAction(rangeIdx, slotIdx, action)
+        });
+        if (rangeIdx > 0) {
+            attachTimeAdjustToggleLabel(
+                startAdjustSet,
+                startAdjustEnabled,
+                t("label_start_time_adjust"),
+                (nextChecked) => setMultiRangeStartEditEnabled(rangeIdx, nextChecked, { persist: true, rerender: true })
+            );
+        }
+        adjustRow.appendChild(startAdjustSet);
+        const endAdjustEnabled = isMultiRangeEndEditEnabled(rangeIdx);
+        const endAdjustSet = renderTimeAdjustSet(1, {
             labelText: t("label_extra_time_adjust"),
             includeFixedActions: false,
             includeZeroDayAction: true,
+            disabled: !endAdjustEnabled,
             onAction: (slotIdx, action) => applyMultiRangeTimeAdjustAction(rangeIdx, slotIdx, action)
-        }));
+        });
+        attachTimeAdjustToggleLabel(
+            endAdjustSet,
+            endAdjustEnabled,
+            t("label_extra_time_adjust"),
+            (nextChecked) => setMultiRangeEndEditEnabled(rangeIdx, nextChecked, { persist: true, rerender: true })
+        );
+        adjustRow.appendChild(endAdjustSet);
         block.appendChild(adjustRow);
 
         const tableWrap = document.createElement("div");
@@ -2114,27 +3176,40 @@ function renderMultiRanges() {
 
     updateTimeAdjustPanel();
     updateCopyFormatPreview();
+    upgradeNativeTitleTooltips(container);
 }
 
 // --- Group Management ---
 function activateGroupTab(idx) {
     if (idx === activeGroupId) return;
+    syncCurrentMultiStateToActiveSubgroup();
     activeGroupId = idx;
+    normalizeGroupTabState();
     if (currentMainTab === "live" || currentMainTab === "fixed") {
         activeGroupIdByMainTab[currentMainTab] = activeGroupId;
     }
+    loadCurrentMultiStateFromActiveSubgroup();
     savePersistence();
     renderGroups();
-    renderList();
-    updateClocks();
+    renderMultiSubgroups();
+    if (isMultiTab()) {
+        renderBaseTimeSelect();
+        renderMultiRanges();
+    }
+    else {
+        renderList();
+    }
 }
 
 function renderGroups() {
+    hideFloatingTooltip();
     const container = document.getElementById("group-tabs-container");
     const addBtn = document.getElementById("add-group-btn");
+    if (!container || !addBtn) return;
     container.innerHTML = "";
 
     groups.forEach((group, idx) => {
+        ensureGroupMultiSubgroups(group);
         const btn = document.createElement("div");
         btn.className = `group-tab ${idx === activeGroupId ? "active" : ""}`;
         btn.setAttribute("role", "button");
@@ -2153,7 +3228,7 @@ function renderGroups() {
         btn.addEventListener("pointerup", (e) => {
             if (e.button !== 0) return;
             const target = e.target;
-            if (target instanceof Element && target.closest(".group-edit-btn, .group-del-btn")) return;
+            if (target instanceof Element && target.closest(".group-edit-btn, .group-export-btn, .group-import-btn, .group-del-btn")) return;
             const deltaX = Math.abs(e.clientX - pointerDownX);
             const deltaY = Math.abs(e.clientY - pointerDownY);
             if (deltaX > 8 || deltaY > 8) return;
@@ -2168,28 +3243,53 @@ function renderGroups() {
         const editBtn = document.createElement("button");
         editBtn.className = "group-edit-btn";
         editBtn.innerHTML = "✎";
-        editBtn.title = t("tooltip_edit");
+        setCustomTooltip(editBtn, t("tooltip_edit"));
         editBtn.onclick = (e) => {
             e.stopPropagation();
             renameGroup(idx);
         };
 
+        const exportBtn = document.createElement("button");
+        exportBtn.className = "group-export-btn";
+        exportBtn.innerHTML = "⤴";
+        setCustomTooltip(exportBtn, t("tooltip_group_export"));
+        exportBtn.onclick = (e) => {
+            e.stopPropagation();
+            exportGroupToJSON(idx);
+        };
+
+        const importBtn = document.createElement("button");
+        importBtn.className = "group-import-btn";
+        importBtn.innerHTML = "⤵";
+        setCustomTooltip(importBtn, t("tooltip_group_import"));
+        importBtn.onclick = (e) => {
+            e.stopPropagation();
+            triggerGroupImportFor(idx);
+        };
+
         const delBtn = document.createElement("button");
         delBtn.className = "group-del-btn";
         delBtn.innerHTML = "✖";
-        delBtn.title = t("tooltip_delete");
+        setCustomTooltip(delBtn, t("tooltip_delete"));
         delBtn.onclick = (e) => {
             e.stopPropagation();
             if (groups.length > 1 && confirm(t("confirm_delete_group"))) {
+                syncCurrentMultiStateToActiveSubgroup();
                 groups.splice(idx, 1);
                 activeGroupId = Math.max(0, activeGroupId - 1);
                 normalizeGroupTabState();
                 if (currentMainTab === "live" || currentMainTab === "fixed") {
                     activeGroupIdByMainTab[currentMainTab] = activeGroupId;
                 }
+                loadCurrentMultiStateFromActiveSubgroup();
                 savePersistence();
                 renderGroups();
-                renderList();
+                renderMultiSubgroups();
+                if (isMultiTab()) {
+                    renderBaseTimeSelect();
+                    renderMultiRanges();
+                }
+                else renderList();
                 showToast(t("toast_group_deleted"));
             } else if (groups.length <= 1) {
                 showToast(t("toast_group_min"));
@@ -2199,11 +3299,14 @@ function renderGroups() {
         btn.appendChild(label);
         if (idx === activeGroupId) {
             btn.appendChild(editBtn);
+            btn.appendChild(exportBtn);
+            btn.appendChild(importBtn);
             btn.appendChild(delBtn);
         }
         container.appendChild(btn);
     });
     container.appendChild(addBtn);
+    upgradeNativeTitleTooltips(container);
 }
 
 function renameGroup(idx) {
@@ -2213,14 +3316,182 @@ function renameGroup(idx) {
         group.name = newName.trim();
         savePersistence();
         renderGroups();
+        renderMultiSubgroups();
         showToast(t("toast_name_changed"));
     }
 }
 
-// --- List Rendering (Dynamic Slots) ---
-const DAYS_KR = ["일", "월", "화", "수", "목", "금", "토"];
+function activateMultiSubgroup(subgroupId) {
+    const group = getCurrentGroup();
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+    if (!group.multiSubgroups.some((subgroup) => subgroup.id === subgroupId)) return;
 
+    syncCurrentMultiStateToActiveSubgroup();
+    group.activeMultiSubgroupId = subgroupId;
+    loadCurrentMultiStateFromActiveSubgroup();
+    savePersistence();
+    renderMultiSubgroups();
+    if (isMultiTab()) renderMultiRanges();
+}
+
+function addMultiSubgroup() {
+    const group = getCurrentGroup();
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+
+    const defaultName = getDefaultMultiSubgroupName(group.multiSubgroups.length);
+    const nextName = prompt(t("prompt_new_subgroup"), defaultName);
+    if (!nextName || !nextName.trim()) return;
+
+    syncCurrentMultiStateToActiveSubgroup();
+    const subgroup = createMultiSubgroupState(nextName, group.multiSubgroups.length, null);
+    group.multiSubgroups.push(subgroup);
+    group.activeMultiSubgroupId = subgroup.id;
+    loadCurrentMultiStateFromActiveSubgroup();
+    savePersistence();
+    renderMultiSubgroups();
+    if (isMultiTab()) renderMultiRanges();
+}
+
+function renameMultiSubgroup(subgroupId) {
+    const group = getCurrentGroup();
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+    const subgroup = group.multiSubgroups.find((item) => item.id === subgroupId);
+    if (!subgroup) return;
+
+    const nextName = prompt(t("prompt_rename_subgroup"), subgroup.name);
+    if (!nextName || !nextName.trim()) return;
+    subgroup.name = sanitizeMultiSubgroupName(nextName, subgroup.name);
+    multiRangeTitle = sanitizeMultiRangeTitle(subgroup.name);
+    savePersistence();
+    renderMultiSubgroups();
+    if (isMultiTab()) renderMultiRanges();
+    showToast(t("toast_subgroup_name_changed"));
+}
+
+function deleteMultiSubgroup(subgroupId) {
+    const group = getCurrentGroup();
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+    if (group.multiSubgroups.length <= 1) {
+        showToast(t("toast_subgroup_min"));
+        return;
+    }
+    if (!confirm(t("confirm_delete_subgroup"))) return;
+
+    syncCurrentMultiStateToActiveSubgroup();
+    const removeIdx = group.multiSubgroups.findIndex((item) => item.id === subgroupId);
+    if (removeIdx < 0) return;
+    group.multiSubgroups.splice(removeIdx, 1);
+    if (!group.multiSubgroups.length) {
+        group.multiSubgroups.push(createMultiSubgroupState(getDefaultMultiSubgroupName(0), 0, null));
+    }
+    group.activeMultiSubgroupId = group.multiSubgroups[Math.max(0, removeIdx - 1)]?.id || group.multiSubgroups[0].id;
+    loadCurrentMultiStateFromActiveSubgroup();
+    savePersistence();
+    renderMultiSubgroups();
+    if (isMultiTab()) renderMultiRanges();
+    showToast(t("toast_subgroup_deleted"));
+}
+
+function renderMultiSubgroups() {
+    hideFloatingTooltip();
+    const container = document.getElementById("multi-subgroup-tabs-container");
+    const addBtn = document.getElementById("add-multi-subgroup-btn");
+    if (!container || !addBtn) return;
+
+    if (!isMultiTab()) {
+        container.style.display = "none";
+        return;
+    }
+
+    const group = getCurrentGroup();
+    if (!group) {
+        container.innerHTML = "";
+        container.appendChild(addBtn);
+        container.style.display = "flex";
+        return;
+    }
+
+    ensureGroupMultiSubgroups(group);
+    container.innerHTML = "";
+    group.multiSubgroups.forEach((subgroup) => {
+        const tab = document.createElement("div");
+        const isActive = subgroup.id === group.activeMultiSubgroupId;
+        tab.className = `multi-subgroup-tab ${isActive ? "active" : ""}`;
+        tab.setAttribute("role", "button");
+        tab.tabIndex = 0;
+        tab.addEventListener("click", () => activateMultiSubgroup(subgroup.id));
+        tab.addEventListener("keydown", (e) => {
+            if (e.key !== "Enter" && e.key !== " ") return;
+            e.preventDefault();
+            activateMultiSubgroup(subgroup.id);
+        });
+
+        const label = document.createElement("span");
+        label.className = "multi-subgroup-name-label";
+        label.textContent = subgroup.name;
+        tab.appendChild(label);
+
+        if (isActive) {
+            const editBtn = document.createElement("button");
+            editBtn.className = "multi-subgroup-edit-btn";
+            editBtn.type = "button";
+            editBtn.innerHTML = "✎";
+            setCustomTooltip(editBtn, t("tooltip_subgroup_edit"));
+            editBtn.onclick = (e) => {
+                e.stopPropagation();
+                renameMultiSubgroup(subgroup.id);
+            };
+
+            const exportBtn = document.createElement("button");
+            exportBtn.className = "multi-subgroup-export-btn";
+            exportBtn.type = "button";
+            exportBtn.innerHTML = "⤴";
+            setCustomTooltip(exportBtn, t("tooltip_subgroup_export"));
+            exportBtn.onclick = (e) => {
+                e.stopPropagation();
+                exportSubgroupToJSON(activeGroupId, subgroup.id);
+            };
+
+            const importBtn = document.createElement("button");
+            importBtn.className = "multi-subgroup-import-btn";
+            importBtn.type = "button";
+            importBtn.innerHTML = "⤵";
+            setCustomTooltip(importBtn, t("tooltip_subgroup_import"));
+            importBtn.onclick = (e) => {
+                e.stopPropagation();
+                triggerSubgroupImportFor(activeGroupId, subgroup.id);
+            };
+
+            const delBtn = document.createElement("button");
+            delBtn.className = "multi-subgroup-del-btn";
+            delBtn.type = "button";
+            delBtn.innerHTML = "✖";
+            setCustomTooltip(delBtn, t("tooltip_subgroup_delete"));
+            delBtn.onclick = (e) => {
+                e.stopPropagation();
+                deleteMultiSubgroup(subgroup.id);
+            };
+            tab.appendChild(editBtn);
+            tab.appendChild(exportBtn);
+            tab.appendChild(importBtn);
+            tab.appendChild(delBtn);
+        }
+
+        container.appendChild(tab);
+    });
+
+    container.appendChild(addBtn);
+    container.style.display = "flex";
+    upgradeNativeTitleTooltips(container);
+}
+
+// --- List Rendering (Dynamic Slots) ---
 function renderList() {
+    hideFloatingTooltip();
     if (isMultiTab()) {
         renderMultiRanges();
         return;
@@ -2291,6 +3562,7 @@ function renderList() {
     renderBaseTimeSelect();
     updateTimeAdjustPanel();
     updateClocks();
+    upgradeNativeTitleTooltips(container);
 }
 // --- Exact Abbr Mapping (Expanded) ---
 const ZONE_MAP = {
@@ -2341,11 +3613,10 @@ function getTimezoneOffset(zone, date) {
 }
 
 function getFixedOffsetForDisplayAtDate(tz, anchorDate) {
-    if (!ignoreDST || !tz || tz.type !== "standard" || !tz.zone || tz.zone === "UTC") return null;
-    const safeAnchor = (anchorDate instanceof Date && Number.isFinite(anchorDate.getTime()))
-        ? anchorDate
-        : globalTimes[0];
-    return getTimezoneOffset(tz.zone, safeAnchor);
+    if (!tz || tz.type !== "standard" || !tz.zone || tz.zone === "UTC") return null;
+    const parsed = Number(tz.fixedOffsetMinutes);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(14 * 60, Math.max(-14 * 60, Math.trunc(parsed)));
 }
 
 function getFixedOffsetForDisplay(tz) {
@@ -2535,6 +3806,11 @@ function applyTimeAdjustAction(slotIdx, action) {
         case "minus_four_weeks":
             parts = shiftLocalParts(parts, { weeks: -4 });
             break;
+        case "set_zero_day":
+            if (slotIdx !== 1) return;
+            globalTimes[1] = new Date(globalTimes[0].getTime());
+            updateClocks();
+            return;
         case "plus_custom_days":
             parts = shiftLocalParts(parts, { days: getTimeAdjustDayStep(slotIdx) });
             break;
@@ -2628,7 +3904,6 @@ function applyBulkRangeAllAction(slotIdx, action) {
     ensureMultiRangeState();
     if (!multiRanges.length) return;
 
-    const firstStart = multiRanges[0].startUtcMs;
     const baseDurations = multiRanges.map((range) => range.endUtcMs - range.startUtcMs);
     let nextDurations = [];
 
@@ -2673,13 +3948,18 @@ function applyBulkRangeAllAction(slotIdx, action) {
         nextDurations = baseDurations.map((durationMs) => durationMs + deltaMs);
     }
 
-    let cursor = firstStart;
-    multiRanges = nextDurations.map((durationMs) => {
-        const startUtcMs = cursor;
-        const endUtcMs = startUtcMs + durationMs;
-        cursor = endUtcMs;
-        return { startUtcMs, endUtcMs };
-    });
+    let cursor = sanitizeUtcMs(multiRanges[0]?.startUtcMs, Date.now());
+    for (let idx = 0; idx < multiRanges.length; idx++) {
+        const current = multiRanges[idx];
+        if (!current) continue;
+        if (idx === 0 || isMultiRangeStartLinked(idx)) {
+            current.startUtcMs = cursor;
+        } else {
+            current.startUtcMs = sanitizeUtcMs(current.startUtcMs, cursor);
+        }
+        current.endUtcMs = current.startUtcMs + (nextDurations[idx] ?? 0);
+        cursor = current.endUtcMs;
+    }
 
     if (isMultiTab()) renderMultiRanges();
     savePersistence();
@@ -2687,13 +3967,23 @@ function applyBulkRangeAllAction(slotIdx, action) {
 
 function applyMultiRangeTimeAdjustAction(rangeIdx, slotIdx, action) {
     if (!isMultiTab()) return;
-    if (rangeIdx > 0 && slotIdx === 0) return;
+    if (rangeIdx > 0 && slotIdx === 0 && !isMultiRangeStartEditEnabled(rangeIdx)) return;
+    if (slotIdx === 1 && !isMultiRangeEndEditEnabled(rangeIdx)) return;
 
     ensureMultiRangeState();
     const range = multiRanges[rangeIdx];
     if (!range) return;
 
-    if (slotIdx === 1 && action === "set_zero_day") {
+    if (slotIdx === 0 && action === "sync_prev_end") {
+        if (rangeIdx <= 0) return;
+        const durationSnapshot = multiRanges.map((item) => item.endUtcMs - item.startUtcMs);
+        range.startUtcMs = multiRanges[rangeIdx - 1].endUtcMs;
+        syncLinkedRangesFrom(rangeIdx, {
+            includeCurrent: true,
+            stopAtFirstUnlocked: true,
+            baseDurations: durationSnapshot
+        });
+    } else if (slotIdx === 1 && action === "set_zero_day") {
         range.endUtcMs = range.startUtcMs;
     } else {
         const baseRef = getBaseTimezoneRef();
@@ -2767,7 +4057,7 @@ function updateRow(id, tz) {
                 offsetStr = "UTC+00:00";
             }
         }
-        zoneCodeMain = getBetterAbbr(tz.zone, globalTimes[0]);
+        zoneCodeMain = getZoneAbbreviation(tz, globalTimes[0]);
     }
 
     const zoneCodeEl = row.querySelector(".zone-code");
@@ -2892,6 +4182,15 @@ function resolveLocalDatePartsByTimezoneAtDate(timezone, utcDate, timezoneId = n
         return { Y: shifted.getUTCFullYear(), M: shifted.getUTCMonth() + 1, D: shifted.getUTCDate() };
     }
 
+    if (timezoneId) {
+        const tz = getCurrentGroupZones().find((item) => item.id === timezoneId) || null;
+        const fixedOffsetMinutes = getFixedOffsetForDisplayAtDate(tz, sourceDate);
+        if (Number.isFinite(fixedOffsetMinutes)) {
+            const shifted = new Date(sourceDate.getTime() + (fixedOffsetMinutes * 60000));
+            return { Y: shifted.getUTCFullYear(), M: shifted.getUTCMonth() + 1, D: shifted.getUTCDate() };
+        }
+    }
+
     const formatter = new Intl.DateTimeFormat("en-US", {
         timeZone: timezone,
         year: "numeric",
@@ -2957,8 +4256,12 @@ function handleTimeChange(val, timezone, slotIdx, timezoneId = null, inputMode =
             return;
         }
     } else {
-        const offMin = (ignoreDST && timezone !== "UTC")
-            ? getTimezoneOffset(timezone, globalTimes[0])
+        const zoneRef = timezoneId
+            ? (getCurrentGroupZones().find((z) => z.id === timezoneId) || null)
+            : null;
+        const fixedOffsetMinutes = getFixedOffsetForDisplayAtDate(zoneRef, globalTimes[0]);
+        const offMin = Number.isFinite(fixedOffsetMinutes)
+            ? fixedOffsetMinutes
             : getTimezoneOffset(timezone, tempUTC);
         const offMs = offMin * 60000;
         globalTimes[slotIdx] = new Date(tempUTC.getTime() - offMs);
@@ -2968,7 +4271,8 @@ function handleTimeChange(val, timezone, slotIdx, timezoneId = null, inputMode =
 
 function handleMultiRangeTimeChange(rangeIdx, val, timezone, slotIdx, timezoneId = null, inputMode = "datetime") {
     if (!isMultiTab()) return;
-    if (rangeIdx > 0 && slotIdx === 0) return;
+    if (rangeIdx > 0 && slotIdx === 0 && !isMultiRangeStartEditEnabled(rangeIdx)) return;
+    if (slotIdx === 1 && !isMultiRangeEndEditEnabled(rangeIdx)) return;
 
     ensureMultiRangeState();
     const range = multiRanges[rangeIdx];
@@ -3011,8 +4315,12 @@ function handleMultiRangeTimeChange(rangeIdx, val, timezone, slotIdx, timezoneId
         nextUtcDate = new Date(tempUTC.getTime() - offMs);
     } else {
         const offsetAnchor = new Date(range.startUtcMs);
-        const offMin = ignoreDST
-            ? getTimezoneOffset(timezone, offsetAnchor)
+        const zoneRef = timezoneId
+            ? (getCurrentGroupZones().find((z) => z.id === timezoneId) || null)
+            : null;
+        const fixedOffsetMinutes = getFixedOffsetForDisplayAtDate(zoneRef, offsetAnchor);
+        const offMin = Number.isFinite(fixedOffsetMinutes)
+            ? fixedOffsetMinutes
             : getTimezoneOffset(timezone, tempUTC);
         nextUtcDate = new Date(tempUTC.getTime() - (offMin * 60000));
     }
@@ -3044,13 +4352,13 @@ function updateTZDropdown() {
     utcOption.textContent = t("utc_name");
     quickSelect.appendChild(utcOption);
 
-    getSortedTZData(TZ_DATABASE).forEach(t => {
+    getSelectableTZEntries().forEach((entry) => {
         const o = document.createElement("option");
-        o.value = t.zone;
-        o.textContent = getLocalizedTZLabel(t);
+        o.value = entry.key;
+        o.textContent = getSelectableTZOptionLabel(entry);
         quickSelect.appendChild(o);
     });
-    adjustSelectWidthForContent(quickSelect, 130);
+    adjustSelectWidthForContent(quickSelect, 118);
 }
 
 function initSearchAndSelect() {
@@ -3069,13 +4377,12 @@ function initSearchAndSelect() {
                 }
                 savePersistence();
                 renderList();
-                updateClocks();
             }
             quickSelect.value = "";
             return;
         }
-        const d = TZ_DATABASE.find(t => t.zone === e.target.value);
-        if (d) addTimezone({ id: createUniqueTimezoneId("tz"), zone: d.zone, name_ko: `${d.name} - ${d.city}`, name_en: `${d.name_en} - ${d.city_en}`, type: "standard" });
+        const entry = getSelectableTZEntryByKey(e.target.value);
+        if (entry) addFromSearchWithData(entry.key);
         quickSelect.value = "";
     };
 
@@ -3083,12 +4390,21 @@ function initSearchAndSelect() {
     if (showAllBtn) {
         showAllBtn.onclick = () => {
             const o = document.getElementById("full-tz-overlay");
-            const list = document.getElementById("full-tz-list");
-            if (!o || !list) return;
-            list.innerHTML = "";
-            getSortedTZData(TZ_DATABASE).forEach(tzData => list.appendChild(createTimezoneListItem(tzData, true)));
+            if (!o) return;
+            fullTimezoneOverlayStandardEntries = getStandardTimezoneEntries();
+            fullTimezoneOverlayCountryEntries = getSelectableTZEntries();
+            setFullTimezoneOverlayTab("standard");
             o.style.display = "flex";
         };
+    }
+
+    const standardTabBtn = document.getElementById("tz-tab-standard");
+    const countryTabBtn = document.getElementById("tz-tab-country");
+    if (standardTabBtn) {
+        standardTabBtn.addEventListener("click", () => setFullTimezoneOverlayTab("standard"));
+    }
+    if (countryTabBtn) {
+        countryTabBtn.addEventListener("click", () => setFullTimezoneOverlayTab("country"));
     }
 
     const closeOverlayBtn = document.getElementById("close-overlay");
@@ -3100,15 +4416,39 @@ function initSearchAndSelect() {
     }
 }
 
-function addFromSearchWithData(zone) {
-    const d = TZ_DATABASE.find(t => t.zone === zone);
-    if (d) {
-        addTimezone({
+function createStandardTimezoneFromSelectableEntry(entry) {
+    if (!entry || typeof entry !== "object") return null;
+    if (entry.kind === "standard_list") {
+        const abbr = normalizeZoneAbbreviation(entry.abbr);
+        const fixedOffsetMinutes = Number.isFinite(entry.fixedOffsetMinutes) ? Math.trunc(entry.fixedOffsetMinutes) : null;
+        const offsetLabel = formatUtcOffsetLabel(fixedOffsetMinutes);
+        return {
             id: createUniqueTimezoneId("tz"),
-            zone: d.zone,
-            name_ko: `${d.name} - ${d.city}`,
-            name_en: `${d.name_en} - ${d.city_en}`,
-            type: "standard"
+            zone: entry.zone || "UTC",
+            name_ko: `${offsetLabel} 표준시`,
+            name_en: `${offsetLabel} Standard Time`,
+            type: "standard",
+            fixedAbbr: abbr,
+            fixedOffsetMinutes
+        };
+    }
+    return {
+        id: createUniqueTimezoneId("tz"),
+        zone: entry.zone,
+        name_ko: `${entry.name} - ${entry.city}`,
+        name_en: `${entry.name_en} - ${entry.city_en}`,
+        type: "standard",
+        fixedAbbr: normalizeZoneAbbreviation(entry.abbr),
+        fixedOffsetMinutes: Number.isFinite(entry.fixedOffsetMinutes) ? entry.fixedOffsetMinutes : null
+    };
+}
+
+function addFromSearchWithData(entryKey) {
+    const entry = getSelectableTZEntryByKey(entryKey);
+    const nextZone = createStandardTimezoneFromSelectableEntry(entry);
+    if (nextZone) {
+        addTimezone({
+            ...nextZone
         });
     }
 }
@@ -3131,7 +4471,6 @@ function addTimezone(tz) {
     activeGroup.zones.push({ ...tz, id: nextId });
     savePersistence();
     renderList();
-    updateClocks();
 }
 function removeTimezone(id) {
     const activeGroup = groups[activeGroupId];
@@ -3142,13 +4481,11 @@ function removeTimezone(id) {
         activeGroup.utcRowOrder = 0;
         savePersistence();
         renderList();
-        updateClocks();
         return;
     }
     activeGroup.zones = activeGroup.zones.filter(z => z.id !== id);
     savePersistence();
     renderList();
-    updateClocks();
 }
 function initDragAndDrop() {
     const c = document.getElementById("clocks-container");
@@ -3214,7 +4551,7 @@ function buildTimezoneComputedSnapshot(id) {
         const minPart = absMin % 60;
         offsetStr = `UTC${sign}${pad(absHour)}:${pad(minPart)}`;
     } else {
-        zoneCodeMain = getBetterAbbr(tz.zone, globalTimes[0]);
+        zoneCodeMain = getZoneAbbreviation(tz, globalTimes[0]);
         if (Number.isFinite(fixedDisplayOffsetMinutes)) {
             const sign = fixedDisplayOffsetMinutes >= 0 ? "+" : "-";
             const absMin = Math.abs(fixedDisplayOffsetMinutes);
@@ -3589,13 +4926,14 @@ function getTimezoneTableImageFilename() {
 
 function getMultiRangeTableImageFilename(rangeIdx) {
     const baseName = getTimezoneTableImageFilename();
-    const rangeLabel = sanitizeFilenamePart(`${sanitizeMultiRangeTitle(multiRangeTitle)} ${rangeIdx + 1}`) || `range_${rangeIdx + 1}`;
+    const subgroupName = sanitizeMultiSubgroupName(getCurrentMultiSubgroupName(), "subgroup");
+    const rangeLabel = sanitizeFilenamePart(`${subgroupName} ${rangeIdx + 1}`) || `range_${rangeIdx + 1}`;
     return `${baseName}_${rangeLabel}.png`;
 }
 
 function getMultiRangeTitlesImageFilename() {
     const baseName = getTimezoneTableImageFilename();
-    const titleLabel = sanitizeFilenamePart(sanitizeMultiRangeTitle(multiRangeTitle)) || "range";
+    const titleLabel = sanitizeFilenamePart(sanitizeMultiSubgroupName(getCurrentMultiSubgroupName(), "subgroup")) || "range";
     return `${baseName}_${titleLabel}_titles.png`;
 }
 
@@ -4101,7 +5439,7 @@ async function renderMultiRangesFallbackDataUrl(targetRangeIdx = null) {
 
     let y = 0;
     metrics.forEach((metric, metricIdx) => {
-        const titleText = metric.titleText || `${t("label_range_name")} ${metricIdx + 1}`;
+        const titleText = metric.titleText || `${t("default_subgroup_name")} ${metricIdx + 1}`;
         ctx.fillStyle = titleBg;
         ctx.fillRect(0, y, sourceWidth, titleHeight);
         ctx.strokeStyle = borderColor;
@@ -4226,7 +5564,7 @@ async function renderMultiRangeTitlesToPngDataUrl() {
     let y = topBottomPadding;
     titles.forEach((titleText, idx) => {
         const rowBg = idx % 2 === 0 ? "rgba(56, 189, 248, 0.12)" : "rgba(56, 189, 248, 0.08)";
-        const resolvedTitle = (titleText || "").trim() || `${t("label_range_name")} ${idx + 1}`;
+        const resolvedTitle = (titleText || "").trim() || `${t("default_subgroup_name")} ${idx + 1}`;
 
         ctx.fillStyle = rowBg;
         ctx.fillRect(0, y, sourceWidth, rowHeight);
@@ -4365,6 +5703,7 @@ async function saveTimezoneTableImage() {
 
 function initCalculators() {
     const pS = document.getElementById("period-start"); const pE = document.getElementById("period-end");
+    const periodSwapBtn = document.getElementById("period-swap-btn");
     const oS = document.getElementById("offset-start"); const oV = document.getElementById("off-val"); const oU = document.getElementById("off-unit");
     const btnPlus = document.getElementById("off-plus"); const btnMinus = document.getElementById("off-minus");
     const periodDayRes = document.getElementById("period-res");
@@ -4413,6 +5752,14 @@ function initCalculators() {
     };
 
     [pS, pE, oS, oV, oU].forEach(el => el.onchange = calc);
+    if (periodSwapBtn) {
+        periodSwapBtn.onclick = () => {
+            const startValue = pS.value;
+            pS.value = pE.value;
+            pE.value = startValue;
+            calc();
+        };
+    }
     if (btnPlus) btnPlus.onclick = () => { oV.value = (parseInt(oV.value) || 0) + 1; calc(); };
     if (btnMinus) btnMinus.onclick = () => { oV.value = (parseInt(oV.value) || 0) - 1; calc(); };
     copyBindings.forEach(([btnId, targetId, isInput]) => {
@@ -4474,11 +5821,13 @@ async function copyText(elementId, isInput = false) {
 
 function getPersistenceSnapshot() {
     currentMainTab = sanitizeMainTab(currentMainTab);
+    syncCurrentMultiStateToActiveSubgroup();
     if (currentMainTab === "live" || currentMainTab === "fixed") {
         activeGroupIdByMainTab[currentMainTab] = activeGroupId;
     }
     normalizeGroupTabState();
     ensureMultiRangeState();
+    groups.forEach((group) => ensureGroupMultiSubgroups(group));
 
     return {
         groups,
@@ -4488,7 +5837,6 @@ function getPersistenceSnapshot() {
         slotCount,
         baseTimezoneId: getCurrentGroupBaseTimezoneId(),
         showTimeAdjust,
-        ignoreDST,
         showCopyFormat,
         displayFormatOrder: sanitizeCopyFormatOrder(displayFormatOrder),
         displayFormatEnabled: sanitizeCopyFormatEnabled(displayFormatEnabled, "display"),
@@ -4501,12 +5849,14 @@ function getPersistenceSnapshot() {
             getTimeAdjustDayStep(1)
         ],
         multiRangeCount: sanitizeMultiRangeCount(multiRangeCount),
-        multiRangeTitle: sanitizeMultiRangeTitle(multiRangeTitle),
+        multiRangeTitle: sanitizeMultiRangeTitle(getCurrentMultiSubgroupName()),
         multiRanges: multiRanges.map((range) => ({
             startUtcMs: sanitizeUtcMs(range.startUtcMs, Date.now()),
             endUtcMs: sanitizeUtcMs(range.endUtcMs, Date.now())
         })),
-        multiRangeCollapsed: multiRangeCollapsed.map((flag) => !!flag)
+        multiRangeCollapsed: multiRangeCollapsed.map((flag) => !!flag),
+        multiRangeStartEditEnabled: multiRangeStartEditEnabled.map((flag) => !!flag),
+        multiRangeEndEditEnabled: multiRangeEndEditEnabled.map((flag) => !!flag)
     };
 }
 
@@ -4516,8 +5866,288 @@ function getSettingsExportFileName() {
     return `GlobalTimeViewer_settings_${stamp}.json`;
 }
 
+function getGroupExportFileName(groupName = "") {
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const safeName = sanitizeFilenamePart(groupName || "") || "group";
+    return `GlobalTimeViewer_group_${safeName}_${stamp}.json`;
+}
+
+function getSubgroupExportFileName(groupName = "", subgroupName = "") {
+    const now = new Date();
+    const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+    const safeGroupName = sanitizeFilenamePart(groupName || "") || "group";
+    const safeSubgroupName = sanitizeFilenamePart(subgroupName || "") || "subgroup";
+    return `GlobalTimeViewer_subgroup_${safeGroupName}_${safeSubgroupName}_${stamp}.json`;
+}
+
+function isValidGroupImportSource(source) {
+    if (!source || typeof source !== "object") return false;
+    if (typeof source.name !== "string" || !source.name.trim()) return false;
+    if (!Array.isArray(source.zones)) return false;
+    return true;
+}
+
+function isValidSubgroupImportSource(source) {
+    if (!source || typeof source !== "object") return false;
+    if (typeof source.name !== "string" || !source.name.trim()) return false;
+    if (!Array.isArray(source.multiRanges) || !source.multiRanges.length) return false;
+    const count = parseInt(source.multiRangeCount, 10);
+    if (!Number.isFinite(count) || count < MIN_MULTI_RANGE_COUNT) return false;
+    return true;
+}
+
+function exportGroupToJSON(groupIdx = activeGroupId) {
+    if (!groups.length) return;
+    try {
+        syncCurrentMultiStateToActiveSubgroup();
+        const safeIdx = Math.min(Math.max(parseInt(groupIdx, 10) || 0, 0), groups.length - 1);
+        const sourceGroup = groups[safeIdx];
+        if (!sourceGroup) return;
+        ensureGroupMultiSubgroups(sourceGroup);
+
+        const groupPayload = {
+            name: sourceGroup.name,
+            zones: sourceGroup.zones,
+            baseTimezoneId: sourceGroup.baseTimezoneId,
+            showUtcRow: sourceGroup.showUtcRow,
+            utcRowOrder: sourceGroup.utcRowOrder,
+            activeMultiSubgroupId: sourceGroup.activeMultiSubgroupId,
+            multiSubgroups: sourceGroup.multiSubgroups
+        };
+        const fileName = getGroupExportFileName(sourceGroup.name);
+        const exportPayload = {
+            app: "GlobalTimeViewer",
+            type: "group",
+            formatVersion: 1,
+            version: VERSION,
+            exportedAt: new Date().toISOString(),
+            group: JSON.parse(JSON.stringify(groupPayload))
+        };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast(tFormat("toast_group_export_success", { filename: fileName }));
+    } catch (err) {
+        console.error("exportGroupToJSON failed:", err);
+        showToast(t("toast_group_export_failed"));
+    }
+}
+
+function triggerGroupImportFor(groupIdx = activeGroupId) {
+    if (!groups.length) return;
+    const safeIdx = Math.min(Math.max(parseInt(groupIdx, 10) || 0, 0), groups.length - 1);
+    pendingGroupImportIndex = safeIdx;
+    const groupImportFile = document.getElementById("group-import-file");
+    if (!groupImportFile) return;
+    groupImportFile.value = "";
+    groupImportFile.click();
+}
+
+function applyImportedGroupSettings(importedRoot, targetGroupIdx = activeGroupId) {
+    if (!groups.length) return;
+    const rootType = (importedRoot && typeof importedRoot === "object" && typeof importedRoot.type === "string")
+        ? importedRoot.type.trim().toLowerCase()
+        : "";
+    if (rootType && rootType !== "group") {
+        throw new Error("Invalid group payload type");
+    }
+    const source = (importedRoot && typeof importedRoot === "object" && importedRoot.group && typeof importedRoot.group === "object")
+        ? importedRoot.group
+        : importedRoot;
+    if (!isValidGroupImportSource(source)) {
+        throw new Error("Invalid group payload");
+    }
+
+    const safeIdx = Math.min(Math.max(parseInt(targetGroupIdx, 10) || 0, 0), groups.length - 1);
+    const sanitized = sanitizeGroup(source, safeIdx, null);
+    if (!sanitized) {
+        throw new Error("Invalid group payload");
+    }
+    ensureGroupMultiSubgroups(sanitized);
+    syncCurrentMultiStateToActiveSubgroup();
+    groups[safeIdx] = sanitized;
+
+    if (activeGroupId === safeIdx) {
+        loadCurrentMultiStateFromActiveSubgroup();
+    }
+    savePersistence();
+    renderGroups();
+    renderMultiSubgroups();
+    if (isMultiTab()) {
+        renderBaseTimeSelect();
+        renderMultiRanges();
+    }
+    else {
+        renderList();
+    }
+}
+
+async function handleGroupImportFile(event) {
+    const input = event?.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+
+    try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw);
+        applyImportedGroupSettings(parsed, pendingGroupImportIndex ?? activeGroupId);
+        showToast(tFormat("toast_group_import_success", { filename: file.name || getGroupExportFileName("group") }));
+    } catch (err) {
+        console.error("handleGroupImportFile failed:", err);
+        showToast(t("toast_group_import_failed"));
+    } finally {
+        pendingGroupImportIndex = null;
+        if (input) input.value = "";
+    }
+}
+
+function exportSubgroupToJSON(groupIdx = activeGroupId, subgroupId = "") {
+    if (!groups.length) return;
+    try {
+        syncCurrentMultiStateToActiveSubgroup();
+        const safeGroupIdx = Math.min(Math.max(parseInt(groupIdx, 10) || 0, 0), groups.length - 1);
+        const sourceGroup = groups[safeGroupIdx];
+        if (!sourceGroup) return;
+        ensureGroupMultiSubgroups(sourceGroup);
+
+        const targetSubgroupId = sanitizeMultiSubgroupId(subgroupId) || sourceGroup.activeMultiSubgroupId;
+        const sourceSubgroup = sourceGroup.multiSubgroups.find((item) => item.id === targetSubgroupId) || sourceGroup.multiSubgroups[0];
+        if (!sourceSubgroup) return;
+
+        const subgroupPayload = {
+            name: sourceSubgroup.name,
+            multiRangeCount: sourceSubgroup.multiRangeCount,
+            multiRanges: sourceSubgroup.multiRanges,
+            multiRangeCollapsed: sourceSubgroup.multiRangeCollapsed,
+            multiRangeStartEditEnabled: sourceSubgroup.multiRangeStartEditEnabled,
+            multiRangeEndEditEnabled: sourceSubgroup.multiRangeEndEditEnabled
+        };
+        const fileName = getSubgroupExportFileName(sourceGroup.name, sourceSubgroup.name);
+        const exportPayload = {
+            app: "GlobalTimeViewer",
+            type: "subgroup",
+            formatVersion: 1,
+            version: VERSION,
+            exportedAt: new Date().toISOString(),
+            groupName: sourceGroup.name,
+            subgroup: JSON.parse(JSON.stringify(subgroupPayload))
+        };
+
+        const blob = new Blob([JSON.stringify(exportPayload, null, 2)], { type: "application/json;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = fileName;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(url);
+        showToast(tFormat("toast_subgroup_export_success", { filename: fileName }));
+    } catch (err) {
+        console.error("exportSubgroupToJSON failed:", err);
+        showToast(t("toast_subgroup_export_failed"));
+    }
+}
+
+function triggerSubgroupImportFor(groupIdx = activeGroupId, subgroupId = "") {
+    if (!groups.length) return;
+    const safeGroupIdx = Math.min(Math.max(parseInt(groupIdx, 10) || 0, 0), groups.length - 1);
+    const group = groups[safeGroupIdx];
+    if (!group) return;
+    ensureGroupMultiSubgroups(group);
+    const targetSubgroupId = sanitizeMultiSubgroupId(subgroupId) || group.activeMultiSubgroupId;
+    const exists = group.multiSubgroups.some((item) => item.id === targetSubgroupId);
+    if (!exists) return;
+
+    pendingSubgroupImportTarget = { groupIdx: safeGroupIdx, subgroupId: targetSubgroupId };
+    const subgroupImportFile = document.getElementById("subgroup-import-file");
+    if (!subgroupImportFile) return;
+    subgroupImportFile.value = "";
+    subgroupImportFile.click();
+}
+
+function applyImportedSubgroupSettings(importedRoot, targetGroupIdx = activeGroupId, targetSubgroupId = "") {
+    if (!groups.length) return;
+    const rootType = (importedRoot && typeof importedRoot === "object" && typeof importedRoot.type === "string")
+        ? importedRoot.type.trim().toLowerCase()
+        : "";
+    if (rootType && rootType !== "subgroup") {
+        throw new Error("Invalid subgroup payload type");
+    }
+    const source = (importedRoot && typeof importedRoot === "object" && importedRoot.subgroup && typeof importedRoot.subgroup === "object")
+        ? importedRoot.subgroup
+        : importedRoot;
+    if (!isValidSubgroupImportSource(source)) {
+        throw new Error("Invalid subgroup payload");
+    }
+
+    const safeGroupIdx = Math.min(Math.max(parseInt(targetGroupIdx, 10) || 0, 0), groups.length - 1);
+    const targetGroup = groups[safeGroupIdx];
+    if (!targetGroup) {
+        throw new Error("Invalid subgroup target group");
+    }
+    ensureGroupMultiSubgroups(targetGroup);
+    const normalizedSubgroupId = sanitizeMultiSubgroupId(targetSubgroupId) || targetGroup.activeMultiSubgroupId;
+    const targetSubgroup = targetGroup.multiSubgroups.find((item) => item.id === normalizedSubgroupId);
+    if (!targetSubgroup) {
+        throw new Error("Invalid subgroup target");
+    }
+
+    const normalizedState = sanitizeMultiStatePayload(source, null);
+    syncCurrentMultiStateToActiveSubgroup();
+    targetSubgroup.name = sanitizeMultiSubgroupName(source.name, targetSubgroup.name || getDefaultMultiSubgroupName(0));
+    targetSubgroup.multiRangeCount = normalizedState.multiRangeCount;
+    targetSubgroup.multiRanges = normalizedState.multiRanges;
+    targetSubgroup.multiRangeCollapsed = normalizedState.multiRangeCollapsed;
+    targetSubgroup.multiRangeStartEditEnabled = normalizedState.multiRangeStartEditEnabled;
+    targetSubgroup.multiRangeEndEditEnabled = normalizedState.multiRangeEndEditEnabled;
+
+    if (activeGroupId === safeGroupIdx && targetGroup.activeMultiSubgroupId === targetSubgroup.id) {
+        loadCurrentMultiStateFromActiveSubgroup();
+    }
+    savePersistence();
+    renderGroups();
+    renderMultiSubgroups();
+    if (isMultiTab()) {
+        renderBaseTimeSelect();
+        renderMultiRanges();
+    }
+    else {
+        renderList();
+    }
+}
+
+async function handleSubgroupImportFile(event) {
+    const input = event?.target;
+    const file = input?.files?.[0];
+    if (!file) return;
+
+    try {
+        const raw = await file.text();
+        const parsed = JSON.parse(raw);
+        const target = pendingSubgroupImportTarget || { groupIdx: activeGroupId, subgroupId: getCurrentMultiSubgroup()?.id || "" };
+        applyImportedSubgroupSettings(parsed, target.groupIdx, target.subgroupId);
+        showToast(tFormat("toast_subgroup_import_success", { filename: file.name || getSubgroupExportFileName("group", "subgroup") }));
+    } catch (err) {
+        console.error("handleSubgroupImportFile failed:", err);
+        showToast(t("toast_subgroup_import_failed"));
+    } finally {
+        pendingSubgroupImportTarget = null;
+        if (input) input.value = "";
+    }
+}
+
 function exportSettingsToJSON() {
     try {
+        const fileName = getSettingsExportFileName();
         const exportPayload = {
             app: "GlobalTimeViewer",
             formatVersion: 1,
@@ -4535,12 +6165,12 @@ function exportSettingsToJSON() {
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = getSettingsExportFileName();
+        anchor.download = fileName;
         document.body.appendChild(anchor);
         anchor.click();
         anchor.remove();
         URL.revokeObjectURL(url);
-        showToast(t("toast_settings_export_success"));
+        showToast(tFormat("toast_settings_export_success", { filename: fileName }));
     } catch (err) {
         console.error("exportSettingsToJSON failed:", err);
         showToast(t("toast_settings_export_failed"));
@@ -4581,7 +6211,13 @@ function applyImportedSettings(importedRoot) {
         throw new Error("Invalid settings payload: groups is required");
     }
 
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    const writeResult = persistStorageSnapshot(payload, { suppressToast: true });
+    if (!writeResult.ok) {
+        const persistErr = new Error("Failed to persist imported settings payload");
+        persistErr.code = "PERSISTENCE_WRITE_FAILED";
+        persistErr.cause = writeResult.error;
+        throw persistErr;
+    }
 
     const pref = (importedRoot && typeof importedRoot === "object" && importedRoot.preferences && typeof importedRoot.preferences === "object")
         ? importedRoot.preferences
@@ -4589,19 +6225,22 @@ function applyImportedSettings(importedRoot) {
 
     if (pref && typeof pref === "object") {
         if (typeof pref.theme === "string") {
-            localStorage.setItem(THEME_STORAGE_KEY, sanitizeTheme(pref.theme));
+            setLocalStorageValue(THEME_STORAGE_KEY, sanitizeTheme(pref.theme), { suppressToast: true });
         }
         if (typeof pref.language === "string" && I18N_DATA[pref.language]) {
-            localStorage.setItem(LANG_STORAGE_KEY, pref.language);
+            setLocalStorageValue(LANG_STORAGE_KEY, pref.language, { suppressToast: true });
         }
         if (pref.uiScale !== undefined) {
-            localStorage.setItem(UI_SCALE_STORAGE_KEY, String(sanitizeUiScalePercent(pref.uiScale)));
+            setLocalStorageValue(UI_SCALE_STORAGE_KEY, String(sanitizeUiScalePercent(pref.uiScale)), { suppressToast: true });
         }
     }
 
     const nextLang = localStorage.getItem(LANG_STORAGE_KEY) || "ko";
     currentLang = I18N_DATA[nextLang] ? nextLang : "ko";
     loadPersistence();
+    if (localizeAutoGeneratedNamesForCurrentLanguage()) {
+        savePersistence();
+    }
     if (ensureImportedGroupsFallbackToStandardTime()) {
         savePersistence();
     }
@@ -4636,17 +6275,26 @@ async function handleSettingsImportFile(event) {
         const raw = await file.text();
         const parsed = JSON.parse(raw);
         applyImportedSettings(parsed);
-        showToast(t("toast_settings_import_success"));
+        showToast(tFormat("toast_settings_import_success", { filename: file.name || getSettingsExportFileName() }));
     } catch (err) {
         console.error("handleSettingsImportFile failed:", err);
-        showToast(t("toast_settings_import_failed"));
+        const cause = (err && typeof err === "object" && err.code === "PERSISTENCE_WRITE_FAILED") ? err.cause : err;
+        if (isQuotaExceededError(cause)) {
+            showToast(t("toast_storage_quota_exceeded"));
+        } else if (err && typeof err === "object" && err.code === "PERSISTENCE_WRITE_FAILED") {
+            showToast(t("toast_storage_save_failed"));
+        } else {
+            showToast(t("toast_settings_import_failed"));
+        }
     } finally {
         if (input) input.value = "";
     }
 }
 
-function savePersistence() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(getPersistenceSnapshot()));
+function savePersistence(options = {}) {
+    const snapshot = getPersistenceSnapshot();
+    const result = persistStorageSnapshot(snapshot, options);
+    return result.ok;
 }
 
 function resetAllSettings() {
@@ -4657,14 +6305,82 @@ function resetAllSettings() {
     location.reload();
 }
 
+function resetExceptGroupsAndTimezones() {
+    if (!confirm(t("confirm_reset_except_group_tz"))) return;
+
+    syncCurrentMultiStateToActiveSubgroup();
+    const preservedGroups = groups.map((group, idx) => sanitizeGroup({
+        name: group?.name,
+        zones: group?.zones,
+        baseTimezoneId: group?.baseTimezoneId,
+        showUtcRow: group?.showUtcRow,
+        utcRowOrder: group?.utcRowOrder
+    }, idx, null)).filter(Boolean);
+
+    groups = preservedGroups.length ? preservedGroups : getDefaultGroups();
+    groups.forEach((group) => ensureGroupMultiSubgroups(group));
+
+    activeGroupId = 0;
+    currentMainTab = "live";
+    activeGroupIdByMainTab = { live: 0, fixed: 0 };
+    slotCount = 1;
+    showTimeAdjust = true;
+    showCopyFormat = false;
+    timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
+    displayFormatOrder = [...COPY_FORMAT_KEYS];
+    displayFormatEnabled = sanitizeCopyFormatEnabled(null, "display");
+    displayTimePartsEnabled = sanitizeTimePartsEnabled(null, "display");
+    copyFormatOrder = [...COPY_FORMAT_KEYS];
+    copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
+    copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
+    multiRangeCount = MIN_MULTI_RANGE_COUNT;
+    multiRangeTitle = t("placeholder_range_title");
+    multiRanges = [];
+    multiRangeCollapsed = [];
+    multiRangeStartEditEnabled = [];
+    multiRangeEndEditEnabled = [];
+    loadCurrentMultiStateFromActiveSubgroup();
+    isRealtime = true;
+
+    const keysToRemove = [THEME_STORAGE_KEY, LANG_STORAGE_KEY, UI_SCALE_STORAGE_KEY, ...LEGACY_STORAGE_KEYS];
+    keysToRemove.forEach((key) => localStorage.removeItem(key));
+    localStorage.removeItem(STORAGE_KEY);
+
+    currentTheme = loadThemePreference();
+    const nextLang = localStorage.getItem(LANG_STORAGE_KEY) || "ko";
+    currentLang = I18N_DATA[nextLang] ? nextLang : "ko";
+    applyTheme(currentTheme, false);
+    applyUiScale(loadUiScalePreference(), false);
+    applyTranslations();
+    applyVersionBranding();
+
+    const langSelect = document.getElementById("lang-select");
+    if (langSelect) langSelect.value = currentLang;
+    const themeSelect = document.getElementById("theme-select");
+    if (themeSelect) themeSelect.value = currentTheme;
+    const uiScaleSelect = document.getElementById("ui-scale-select");
+    if (uiScaleSelect) {
+        populateUiScaleSelect(uiScaleSelect);
+        uiScaleSelect.value = String(getCurrentUiScalePercent());
+    }
+
+    refreshMultiRangeControls();
+    updateTZDropdown();
+    refreshSelectWidths();
+    switchMainTab("live");
+    savePersistence();
+}
+
 function getDefaultGroups() {
-    return [{
+    const defaultGroup = {
         name: t("default_group_name"),
         zones: [],
         baseTimezoneId: "utc",
         showUtcRow: true,
         utcRowOrder: 0
-    }];
+    };
+    ensureGroupMultiSubgroups(defaultGroup);
+    return [defaultGroup];
 }
 
 function sanitizeTimezoneZone(zone) {
@@ -4688,12 +6404,19 @@ function sanitizeTimezoneZone(zone) {
     const timeZoneName = (typeof zone.zone === "string" && zone.zone.trim()) ? zone.zone : null;
     if (!timeZoneName || !isValidTimeZone(timeZoneName)) return null;
     const fallbackName = (typeof zone.name === "string" && zone.name.trim()) ? zone.name.trim() : timeZoneName;
+    const fixedOffsetRaw = Number(zone.fixedOffsetMinutes);
+    const fixedOffsetMinutes = Number.isFinite(fixedOffsetRaw)
+        ? Math.min(14 * 60, Math.max(-14 * 60, Math.trunc(fixedOffsetRaw)))
+        : null;
+    const fixedAbbr = normalizeZoneAbbreviation(zone.fixedAbbr);
     return {
         id,
         type: "standard",
         zone: timeZoneName,
         name_ko: (typeof zone.name_ko === "string" && zone.name_ko.trim()) ? zone.name_ko : fallbackName,
-        name_en: (typeof zone.name_en === "string" && zone.name_en.trim()) ? zone.name_en : fallbackName
+        name_en: (typeof zone.name_en === "string" && zone.name_en.trim()) ? zone.name_en : fallbackName,
+        fixedOffsetMinutes,
+        fixedAbbr: fixedAbbr || ""
     };
 }
 
@@ -4714,7 +6437,7 @@ function isValidTimeZone(zoneName) {
     return valid;
 }
 
-function sanitizeGroup(group, idx) {
+function sanitizeGroup(group, idx, legacyMultiState = null) {
     if (!group || typeof group !== "object") return null;
     const rawZones = Array.isArray(group.zones) ? group.zones.map(sanitizeTimezoneZone).filter(Boolean) : [];
     const zones = rawZones.filter(z => !(z.type === "standard" && z.zone === "UTC"));
@@ -4728,13 +6451,38 @@ function sanitizeGroup(group, idx) {
     const hasLegacyUtcZone = rawZones.length !== zones.length;
     const showUtcRow = hasLegacyUtcZone ? true : (typeof group.showUtcRow === "boolean" ? group.showUtcRow : true);
     const utcRowOrder = sanitizeUtcRowOrder(group.utcRowOrder);
-    return {
+    const rawMultiSubgroups = Array.isArray(group.multiSubgroups) ? group.multiSubgroups : [];
+    const multiSubgroups = rawMultiSubgroups.map((subgroup) => ({
+        id: sanitizeMultiSubgroupId(subgroup?.id),
+        name: subgroup?.name,
+        multiRangeCount: subgroup?.multiRangeCount,
+        multiRanges: subgroup?.multiRanges,
+        multiRangeCollapsed: subgroup?.multiRangeCollapsed,
+        multiRangeStartEditEnabled: subgroup?.multiRangeStartEditEnabled,
+        multiRangeEndEditEnabled: subgroup?.multiRangeEndEditEnabled
+    }));
+    const activeMultiSubgroupId = sanitizeMultiSubgroupId(group.activeMultiSubgroupId);
+    const sanitizedGroup = {
         name,
         zones,
         baseTimezoneId: isBaseTimezoneValid ? requestedBaseTimezoneId : "utc",
         showUtcRow,
-        utcRowOrder
+        utcRowOrder,
+        activeMultiSubgroupId,
+        multiSubgroups
     };
+    const groupLegacyMultiState = (group.multiRanges || group.multiRangeCount || group.multiRangeCollapsed || group.multiRangeStartEditEnabled || group.multiRangeEndEditEnabled)
+        ? {
+            multiRangeCount: group.multiRangeCount,
+            multiRanges: group.multiRanges,
+            multiRangeCollapsed: group.multiRangeCollapsed,
+            multiRangeStartEditEnabled: group.multiRangeStartEditEnabled,
+            multiRangeEndEditEnabled: group.multiRangeEndEditEnabled,
+            multiRangeTitle: group.multiRangeTitle
+        }
+        : null;
+    ensureGroupMultiSubgroups(sanitizedGroup, { legacyMultiState: groupLegacyMultiState || legacyMultiState });
+    return sanitizedGroup;
 }
 
 function loadPersistence() {
@@ -4755,8 +6503,7 @@ function loadPersistence() {
         currentMainTab = "live";
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
-        showTimeAdjust = false;
-        ignoreDST = true;
+        showTimeAdjust = true;
         showCopyFormat = false;
         timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
         displayFormatOrder = [...COPY_FORMAT_KEYS];
@@ -4765,18 +6512,24 @@ function loadPersistence() {
         copyFormatOrder = [...COPY_FORMAT_KEYS];
         copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
         copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
-        multiRangeCount = MIN_MULTI_RANGE_COUNT;
-        multiRangeTitle = DEFAULT_MULTI_RANGE_TITLE;
-        multiRanges = [];
-        multiRangeCollapsed = [];
-        ensureMultiRangeState();
+        loadCurrentMultiStateFromActiveSubgroup();
         isRealtime = true;
         return;
     }
 
     try {
         const d = JSON.parse(s);
-        const parsedGroups = Array.isArray(d?.groups) ? d.groups.map(sanitizeGroup).filter(Boolean) : [];
+        const legacyGlobalMultiState = sanitizeMultiStatePayload({
+            multiRangeCount: d?.multiRangeCount,
+            multiRanges: d?.multiRanges,
+            multiRangeCollapsed: d?.multiRangeCollapsed,
+            multiRangeStartEditEnabled: d?.multiRangeStartEditEnabled,
+            multiRangeEndEditEnabled: d?.multiRangeEndEditEnabled
+        }, null);
+        legacyGlobalMultiState.multiRangeTitle = sanitizeMultiRangeTitle(d?.multiRangeTitle);
+        const parsedGroups = Array.isArray(d?.groups)
+            ? d.groups.map((group, idx) => sanitizeGroup(group, idx, legacyGlobalMultiState)).filter(Boolean)
+            : [];
         groups = parsedGroups.length ? parsedGroups : getDefaultGroups();
         const rawGroups = Array.isArray(d?.groups) ? d.groups : [];
         const legacyGlobalBaseTimezoneId = sanitizeBaseTimezoneId(d?.baseTimezoneId);
@@ -4805,8 +6558,7 @@ function loadPersistence() {
         const parsedSlotCount = parseInt(d?.slotCount, 10);
         slotCount = Math.min(2, Math.max(1, Number.isFinite(parsedSlotCount) ? parsedSlotCount : 1));
 
-        showTimeAdjust = !!d?.showTimeAdjust;
-        ignoreDST = (typeof d?.ignoreDST === "boolean") ? d.ignoreDST : true;
+        showTimeAdjust = true;
         showCopyFormat = !!d?.showCopyFormat;
         const rawTimeAdjustStep = Array.isArray(d?.timeAdjustDayStepBySlot) ? d.timeAdjustDayStepBySlot : [];
         timeAdjustDayStepBySlot = [
@@ -4834,19 +6586,17 @@ function loadPersistence() {
         if (!d?.copyTimePartsEnabled) {
             copyTimePartsEnabled = deriveTimePartsFromLegacyEnabled(d?.copyFormatEnabled, "copy");
         }
-        multiRangeCount = sanitizeMultiRangeCount(d?.multiRangeCount);
-        multiRangeTitle = sanitizeMultiRangeTitle(d?.multiRangeTitle);
-        multiRanges = Array.isArray(d?.multiRanges)
-            ? d.multiRanges.map((range) => sanitizeMultiRangeItem(range, Date.now(), Date.now()))
-            : [];
-        multiRangeCollapsed = Array.isArray(d?.multiRangeCollapsed)
-            ? d.multiRangeCollapsed.map((flag) => !!flag)
-            : [];
-        ensureMultiRangeState();
+        multiRangeCount = MIN_MULTI_RANGE_COUNT;
+        multiRangeTitle = t("placeholder_range_title");
+        multiRanges = [];
+        multiRangeCollapsed = [];
+        multiRangeStartEditEnabled = [];
+        multiRangeEndEditEnabled = [];
         normalizeGroupTabState();
         if (currentMainTab === "live" || currentMainTab === "fixed") {
             activeGroupId = activeGroupIdByMainTab[currentMainTab];
         }
+        loadCurrentMultiStateFromActiveSubgroup();
         isRealtime = (currentMainTab === "live");
         ensureBaseTimezoneSelection();
     } catch (err) {
@@ -4856,8 +6606,7 @@ function loadPersistence() {
         currentMainTab = "live";
         activeGroupIdByMainTab = { live: 0, fixed: 0 };
         slotCount = 1;
-        showTimeAdjust = false;
-        ignoreDST = true;
+        showTimeAdjust = true;
         showCopyFormat = false;
         timeAdjustDayStepBySlot = [DEFAULT_TIME_ADJUST_DAY_STEP, DEFAULT_TIME_ADJUST_DAY_STEP];
         displayFormatOrder = [...COPY_FORMAT_KEYS];
@@ -4866,11 +6615,7 @@ function loadPersistence() {
         copyFormatOrder = [...COPY_FORMAT_KEYS];
         copyFormatEnabled = sanitizeCopyFormatEnabled(null, "copy");
         copyTimePartsEnabled = sanitizeTimePartsEnabled(null, "copy");
-        multiRangeCount = MIN_MULTI_RANGE_COUNT;
-        multiRangeTitle = DEFAULT_MULTI_RANGE_TITLE;
-        multiRanges = [];
-        multiRangeCollapsed = [];
-        ensureMultiRangeState();
+        loadCurrentMultiStateFromActiveSubgroup();
         isRealtime = true;
         savePersistence();
     }

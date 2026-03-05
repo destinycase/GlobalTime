@@ -194,7 +194,13 @@ td {
 .off-btn,
 #timezone-section .drag-handle,
 .group-del-btn,
-.group-edit-btn {
+.group-edit-btn,
+.group-export-btn,
+.group-import-btn,
+.multi-subgroup-edit-btn,
+.multi-subgroup-export-btn,
+.multi-subgroup-import-btn,
+.multi-subgroup-del-btn {
     background: linear-gradient(180deg, rgba(56, 189, 248, 0.24), rgba(56, 189, 248, 0.12));
     border-color: rgba(56, 189, 248, 0.55);
     color: var(--accent);
@@ -207,7 +213,13 @@ td {
 .off-btn:hover,
 #timezone-section .drag-handle:hover,
 .group-del-btn:hover,
-.group-edit-btn:hover {
+.group-edit-btn:hover,
+.group-export-btn:hover,
+.group-import-btn:hover,
+.multi-subgroup-edit-btn:hover,
+.multi-subgroup-export-btn:hover,
+.multi-subgroup-import-btn:hover,
+.multi-subgroup-del-btn:hover {
     background: linear-gradient(180deg, rgba(56, 189, 248, 0.35), rgba(56, 189, 248, 0.2));
     border-color: rgba(56, 189, 248, 0.8);
     color: #e0f2fe;
@@ -218,7 +230,13 @@ td {
 :root[data-theme="light"] .off-btn,
 :root[data-theme="light"] #timezone-section .drag-handle,
 :root[data-theme="light"] .group-del-btn,
-:root[data-theme="light"] .group-edit-btn {
+:root[data-theme="light"] .group-edit-btn,
+:root[data-theme="light"] .group-export-btn,
+:root[data-theme="light"] .group-import-btn,
+:root[data-theme="light"] .multi-subgroup-edit-btn,
+:root[data-theme="light"] .multi-subgroup-export-btn,
+:root[data-theme="light"] .multi-subgroup-import-btn,
+:root[data-theme="light"] .multi-subgroup-del-btn {
     background: linear-gradient(180deg, rgba(2, 132, 199, 0.18), rgba(2, 132, 199, 0.1));
     border-color: rgba(2, 132, 199, 0.45);
     color: #075985;
@@ -227,7 +245,8 @@ td {
 
 /* Deletion actions: keep unified style, add subtle red risk cue */
 .sm-btn.danger,
-.group-del-btn {
+.group-del-btn,
+.multi-subgroup-del-btn {
     background: linear-gradient(180deg, rgba(239, 68, 68, 0.22), rgba(239, 68, 68, 0.12));
     border-color: rgba(239, 68, 68, 0.58);
     color: #fecaca;
@@ -235,7 +254,8 @@ td {
 }
 
 .sm-btn.danger:hover,
-.group-del-btn:hover {
+.group-del-btn:hover,
+.multi-subgroup-del-btn:hover {
     background: linear-gradient(180deg, rgba(239, 68, 68, 0.32), rgba(239, 68, 68, 0.18));
     border-color: rgba(239, 68, 68, 0.82);
     color: #fee2e2;
@@ -243,7 +263,8 @@ td {
 }
 
 :root[data-theme="light"] .sm-btn.danger,
-:root[data-theme="light"] .group-del-btn {
+:root[data-theme="light"] .group-del-btn,
+:root[data-theme="light"] .multi-subgroup-del-btn {
     background: linear-gradient(180deg, rgba(220, 38, 38, 0.14), rgba(220, 38, 38, 0.08));
     border-color: rgba(220, 38, 38, 0.58);
     color: #991b1b;
@@ -251,7 +272,8 @@ td {
 }
 
 :root[data-theme="light"] .sm-btn.danger:hover,
-:root[data-theme="light"] .group-del-btn:hover {
+:root[data-theme="light"] .group-del-btn:hover,
+:root[data-theme="light"] .multi-subgroup-del-btn:hover {
     background: linear-gradient(180deg, rgba(220, 38, 38, 0.2), rgba(220, 38, 38, 0.12));
     border-color: rgba(220, 38, 38, 0.8);
     color: #7f1d1d;
@@ -335,10 +357,19 @@ input[type=number] {
     gap: 15px;
 }
 
+.control-row-main {
+    gap: 10px;
+}
+
+.control-row-main .control-group {
+    gap: 8px;
+}
+
 .control-row-options {
     border-top: 2px solid rgba(148, 163, 184, 0.45);
     box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.16);
-    padding-top: 12px;
+    padding-top: 10px;
+    gap: 10px;
 }
 
 .control-row-tools {
@@ -355,26 +386,54 @@ input[type=number] {
     width: 100%;
 }
 
+.multi-tool-block {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.multi-range-bulk-toggle-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 8px;
+    width: 100%;
+    overflow-x: auto;
+}
+
+.multi-range-bulk-toggle-row .time-adjust-set {
+    flex-wrap: nowrap;
+}
+
+.multi-tool-block-label {
+    font-size: 14px;
+    color: var(--text-dim);
+    font-weight: 700;
+    padding-left: 2px;
+}
+
 .control-row-options .option-toggle-group {
     position: relative;
-    padding-right: 22px;
-    margin-right: 6px;
+    padding-right: 16px;
+    margin-right: 2px;
 }
 
-.control-row-options .option-toggle-group:not(:last-of-type) {
-    border-right: none;
-}
-
-.control-row-options .option-toggle-group:not(:last-of-type)::after {
+.control-row-options .option-toggle-group.option-with-divider::after {
     content: "|";
     position: absolute;
-    right: 6px;
+    right: 4px;
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-dim);
     font-weight: 700;
     opacity: 0.9;
     user-select: none;
+}
+
+.control-row-options .option-toggle-group>label {
+    gap: 6px !important;
 }
 
 .control-group {
@@ -385,14 +444,14 @@ input[type=number] {
 
 .control-row-main .control-group-divider {
     position: relative;
-    padding-left: 24px;
-    margin-left: 6px;
+    padding-left: 18px;
+    margin-left: 2px;
 }
 
 .control-row-main .control-group-divider::before {
     content: "|";
     position: absolute;
-    left: 8px;
+    left: 4px;
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-dim);
@@ -406,6 +465,11 @@ input[type=number] {
     width: 20px;
     height: 20px;
     cursor: pointer;
+}
+
+.control-row-options input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
 }
 
 #multi-range-count-group {
@@ -438,10 +502,6 @@ input[type=number] {
     padding: 4px 0;
 }
 
-#multi-range-title-group {
-    gap: 8px;
-}
-
 .control-label {
     font-size: 16px;
     color: var(--accent);
@@ -460,6 +520,7 @@ input[type=number] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    position: relative;
     width: 16px;
     height: 16px;
     border-radius: 50%;
@@ -473,16 +534,59 @@ input[type=number] {
     user-select: none;
 }
 
-.control-bar.time-adjust-enabled {
-    min-height: 130px;
+.custom-tooltip {
+    position: relative;
+}
+
+.info-tip::after,
+.custom-tooltip::after {
+    content: none !important;
+    display: none !important;
+}
+
+.app-floating-tooltip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 3000;
+    max-width: 360px;
+    min-width: 140px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: rgba(15, 23, 42, 0.97);
+    color: var(--text);
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: normal;
+    text-align: left;
+    pointer-events: none;
+    opacity: 0;
+    transform: translateY(2px);
+    transition: opacity 0.08s ease, transform 0.08s ease;
+}
+
+.app-floating-tooltip.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+:root[data-theme="light"] .app-floating-tooltip {
+    background: rgba(248, 250, 252, 0.98);
+}
+
+.time-adjust-frame {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 15px;
+    margin-top: -2px;
+    margin-bottom: 10px;
 }
 
 .time-adjust-row {
     width: 100%;
-    border-top: 2px solid rgba(148, 163, 184, 0.45);
-    box-shadow: inset 0 1px 0 rgba(56, 189, 248, 0.16);
-    padding-top: 12px;
-    margin-top: -2px;
 }
 
 .time-adjust-buttons {
@@ -700,8 +804,9 @@ input[type=number] {
     background: linear-gradient(180deg, rgba(56, 189, 248, 0.26), rgba(56, 189, 248, 0.12));
     color: var(--accent);
     cursor: grab;
-    padding: 0 5px;
+    padding: 1px 5px 0;
     font-size: 12px;
+    font-family: 'JetBrains Mono', 'Segoe UI Symbol', monospace;
     font-weight: 700;
     min-width: 20px;
     height: 20px;
@@ -800,10 +905,34 @@ input[type=number] {
     white-space: nowrap;
 }
 
+.time-adjust-zero-btn,
+.time-adjust-bulk-zero-btn {
+    min-width: 150px;
+    white-space: nowrap;
+    text-align: left !important;
+    justify-content: flex-start !important;
+}
+
+.time-adjust-bulk-toggle-btn {
+    min-width: 160px;
+    white-space: nowrap;
+}
+
 .time-adjust-set .sm-btn:hover {
     background: rgba(148, 163, 184, 0.16);
     border-color: rgba(148, 163, 184, 0.52);
     color: var(--text);
+}
+
+.time-adjust-set .sm-btn:disabled,
+.time-adjust-set .sm-btn:disabled:hover {
+    background: rgba(100, 116, 139, 0.08);
+    border-color: rgba(100, 116, 139, 0.24);
+    color: var(--text-dim);
+    opacity: 0.48;
+    cursor: not-allowed;
+    pointer-events: none;
+    box-shadow: none;
 }
 
 :root[data-theme="light"] .time-adjust-set .sm-btn {
@@ -817,6 +946,28 @@ input[type=number] {
     background: rgba(100, 116, 139, 0.12);
     border-color: rgba(100, 116, 139, 0.45);
     color: #0f172a;
+}
+
+:root[data-theme="light"] .time-adjust-set .sm-btn:disabled,
+:root[data-theme="light"] .time-adjust-set .sm-btn:disabled:hover {
+    background: rgba(148, 163, 184, 0.2);
+    border-color: rgba(148, 163, 184, 0.42);
+    color: #64748b;
+    opacity: 0.55;
+}
+
+.time-adjust-set .time-adjust-days-input:disabled {
+    opacity: 0.56;
+    cursor: not-allowed;
+    background: rgba(100, 116, 139, 0.1);
+    border-color: rgba(100, 116, 139, 0.28);
+    color: var(--text-dim);
+}
+
+:root[data-theme="light"] .time-adjust-set .time-adjust-days-input:disabled {
+    background: rgba(148, 163, 184, 0.22);
+    border-color: rgba(148, 163, 184, 0.4);
+    color: #64748b;
 }
 
 .time-adjust-divider {
@@ -899,7 +1050,9 @@ input[type=number] {
 }
 
 .group-del-btn,
-.group-edit-btn {
+.group-edit-btn,
+.group-export-btn,
+.group-import-btn {
     font-size: 16px;
     line-height: 1;
     cursor: pointer;
@@ -913,8 +1066,135 @@ input[type=number] {
     opacity: 1;
 }
 
-.group-edit-btn:hover {
+.group-edit-btn:hover,
+.group-export-btn:hover,
+.group-import-btn:hover {
     opacity: 1;
+}
+
+.multi-subgroup-edit-btn:hover,
+.multi-subgroup-export-btn:hover,
+.multi-subgroup-import-btn:hover,
+.multi-subgroup-del-btn:hover {
+    opacity: 1;
+}
+
+.multi-subgroup-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 0;
+    margin-bottom: 0;
+    overflow-x: hidden;
+    padding-bottom: 2px;
+}
+
+.multi-subgroup-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+    padding: 5px 9px;
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    color: var(--text-dim);
+    white-space: nowrap;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.multi-subgroup-tab:hover {
+    border-color: rgba(56, 189, 248, 0.35);
+    color: var(--text);
+}
+
+.multi-subgroup-tab.active {
+    background: linear-gradient(0deg, rgba(56, 189, 248, 0.1), rgba(56, 189, 248, 0.1)), var(--panel-bg);
+    border-color: rgba(56, 189, 248, 0.35);
+    color: var(--text);
+}
+
+:root[data-theme="light"] .multi-subgroup-tab.active {
+    background: linear-gradient(0deg, rgba(2, 132, 199, 0.08), rgba(2, 132, 199, 0.08)), var(--panel-bg);
+    border-color: rgba(2, 132, 199, 0.3);
+}
+
+.multi-subgroup-name-label {
+    font-weight: 600;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.multi-subgroup-edit-btn,
+.multi-subgroup-export-btn,
+.multi-subgroup-import-btn,
+.multi-subgroup-del-btn {
+    font-size: 12px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+}
+
+#add-multi-subgroup-btn {
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.multi-subgroup-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    margin: 0;
+}
+
+.multi-subgroup-row #multi-range-count-group {
+    margin-right: 0;
+    padding-right: 22px;
+}
+
+.multi-subgroup-row #multi-subgroup-tabs-container {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+}
+
+.multi-subgroup-row .multi-subgroup-tabs {
+    flex: 1;
+    min-width: 0;
+}
+
+#multi-controls-frame {
+    background: var(--panel-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-top: -2px;
+    margin-bottom: 10px;
+}
+
+#multi-tools-row {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+    padding: 10px 0 0 0;
+    margin: 8px 0 0 0;
+}
+
+#multi-tools-row.control-row-tools {
+    border-top: 1px solid var(--border);
+    box-shadow: none;
 }
 
 /* Table Section - Fill Width & Action Right */
@@ -943,14 +1223,15 @@ input[type=number] {
 }
 
 #multi-range-section.tab-content {
-    padding-left: 5px;
-    padding-right: 5px;
+    padding-left: 0;
+    padding-right: 0;
 }
 
 .multi-ranges-container {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    width: 100%;
 }
 
 .multi-range-block {
@@ -989,6 +1270,13 @@ input[type=number] {
     gap: 6px;
 }
 
+.multi-range-header-divider {
+    color: var(--text-dim);
+    font-weight: 700;
+    opacity: 0.85;
+    user-select: none;
+}
+
 .multi-range-copy-btn {
     min-width: 64px;
     padding: 4px 8px;
@@ -1005,8 +1293,20 @@ input[type=number] {
     gap: 8px;
 }
 
+.time-adjust-set-label-with-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.time-adjust-set-toggle {
+    width: 15px;
+    height: 15px;
+    margin: 0;
+}
+
 .multi-range-table-wrap {
-    overflow-x: auto;
+    overflow-x: hidden;
 }
 
 .multi-range-table th {
@@ -1019,6 +1319,8 @@ input[type=number] {
 }
 
 .multi-range-table .time-input {
+    width: min(17vw, 200px);
+    max-width: 100%;
     font-size: 14px;
     padding: 5px 8px;
 }
@@ -1026,6 +1328,27 @@ input[type=number] {
 .multi-range-table .day-badge {
     font-size: 11px;
     padding: 2px 6px;
+    min-width: 22px;
+}
+
+.multi-range-table .dn-icon {
+    font-size: 13px;
+    min-width: 14px;
+}
+
+.multi-range-table .zone-code {
+    min-width: 56px;
+    font-size: 14px;
+    padding: 3px 6px;
+}
+
+.multi-range-table .time-day-group {
+    gap: 5px;
+}
+
+.multi-range-table {
+    width: 100%;
+    table-layout: fixed;
 }
 
 .multi-range-block.collapsed .multi-range-table-wrap {
@@ -1149,9 +1472,10 @@ input[type=number] {
 .drag-handle {
     border-radius: 4px;
     cursor: grab;
-    line-height: 1.2;
-    padding: 0;
+    line-height: 1;
+    padding: 1px 0 0;
     font-size: 14px;
+    font-family: 'JetBrains Mono', 'Segoe UI Symbol', monospace;
 }
 
 .drag-handle:active {
@@ -1250,6 +1574,8 @@ input[type=number] {
 
 .period-days-cell {
     min-width: 90px;
+    max-width: 90px;
+    width: 90px;
     padding-left: 2px !important;
     padding-right: 2px !important;
     text-align: center;
@@ -1260,6 +1586,11 @@ input[type=number] {
 }
 
 .period-days-text {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-family: 'JetBrains Mono', monospace;
     font-size: 16px;
     color: var(--accent);
@@ -1268,9 +1599,23 @@ input[type=number] {
 
 .period-time-cell {
     min-width: 170px;
+    max-width: 170px;
+    width: 170px;
     padding-left: 2px !important;
     padding-right: 2px !important;
     text-align: center;
+}
+
+.multi-range-table .period-days-cell {
+    min-width: 82px;
+    max-width: 82px;
+    width: 82px;
+}
+
+.multi-range-table .period-time-cell {
+    min-width: 136px;
+    max-width: 136px;
+    width: 136px;
 }
 
 .time-row td.period-time-cell {
@@ -1278,6 +1623,10 @@ input[type=number] {
 }
 
 .period-time-text {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-family: 'JetBrains Mono', monospace;
     font-size: 16px;
     color: var(--accent);
@@ -1332,6 +1681,53 @@ input[type=number] {
     width: 100px;
     color: var(--text-dim);
     font-size: 16px;
+}
+
+.calc-period-grid {
+    --period-swap-col: 42px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.calc-period-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--period-swap-col) minmax(0, 1fr);
+    gap: 8px;
+}
+
+.calc-period-head label {
+    color: var(--text-dim);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.calc-period-head label:first-child {
+    grid-column: 1;
+}
+
+.calc-period-head label:last-child {
+    grid-column: 3;
+}
+
+.calc-period-input-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) var(--period-swap-col) minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+}
+
+.calc-period-input-row .form-input {
+    width: 100%;
+}
+
+.calc-period-swap-btn {
+    min-width: 42px;
+    width: 42px;
+    padding: 5px 0 !important;
+    justify-content: center !important;
+    text-align: center !important;
+    font-weight: 700;
 }
 
 /* Converter Styling - Vertical List */
@@ -1440,8 +1836,39 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     padding: 0 10px;
 }
 
+.sidebar-group-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar-group-inline .sm-btn {
+    flex: 1 1 auto;
+    width: auto;
+}
+
+.sidebar-group-reset-only {
+    margin-bottom: 8px;
+}
+
 .sidebar-group-select + .sidebar-group-select {
     margin-top: 8px;
+}
+
+.sidebar-control-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sidebar-control-row .sidebar-select {
+    flex: 1 1 auto;
+}
+
+.sidebar-control-row .info-tip {
+    flex: 0 0 16px;
+    min-width: 16px;
+    min-height: 16px;
 }
 
 .sidebar-control-label {
@@ -1458,7 +1885,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     font-size: 13px;
 }
 
-#export-settings-btn {
+.sidebar-group-inline .info-tip {
+    flex: 0 0 auto;
+}
+
+.sidebar-group-export {
     margin-bottom: 8px;
 }
 
@@ -1528,6 +1959,57 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
     gap: 12px;
+    align-content: start;
+}
+
+.tz-section-title {
+    grid-column: 1 / -1;
+    font-size: 14px;
+    line-height: 1.2;
+    font-weight: 800;
+    color: var(--accent);
+    padding: 2px 4px 6px;
+    margin-top: 6px;
+    border-bottom: 1px solid var(--border);
+}
+
+.tz-section-title:first-child {
+    margin-top: 0;
+}
+
+.overlay-tabs {
+    display: flex;
+    gap: 8px;
+    padding: 12px 20px 0;
+}
+
+.overlay-tab {
+    min-width: 120px;
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 700;
+    background: rgba(148, 163, 184, 0.12);
+    border: 1px solid rgba(148, 163, 184, 0.32);
+    color: var(--text-dim);
+}
+
+.overlay-tab.active {
+    background: var(--accent-glow);
+    border-color: rgba(56, 189, 248, 0.58);
+    color: var(--accent);
+}
+
+:root[data-theme="light"] .overlay-tab {
+    background: rgba(100, 116, 139, 0.1);
+    border-color: rgba(100, 116, 139, 0.3);
+    color: #475569;
+}
+
+:root[data-theme="light"] .overlay-tab.active {
+    background: rgba(2, 132, 199, 0.16);
+    border-color: rgba(2, 132, 199, 0.52);
+    color: #0369a1;
 }
 
 .tz-item {
@@ -1535,12 +2017,34 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     background: rgba(255, 255, 255, 0.03);
     border-radius: 4px;
     cursor: pointer;
-    font-size: 16px;
     transition: all 0.2s;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
 .tz-item:hover {
     background: var(--accent-glow);
+    color: var(--accent);
+}
+
+.tz-item:hover .tz-item-title,
+.tz-item:hover .tz-item-abbr {
+    color: var(--accent);
+}
+
+.tz-item-title {
+    font-size: 15px;
+    line-height: 1.3;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.tz-item-abbr {
+    font-size: 13px;
+    line-height: 1.2;
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
     color: var(--accent);
 }
 
@@ -1590,6 +2094,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     border-radius: 50px;
     font-size: 16px;
     font-weight: 500;
+    white-space: pre-line;
     backdrop-filter: blur(8px);
     border: 1px solid var(--accent);
     box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3);
